@@ -24,8 +24,10 @@ typedef struct Profile Profile;
 struct FingerInfo {
 	int x;
 	int y;
-	int down;
-	int id;
+	int rawX;
+	int rawY;
+	int setThisTime;
+	int id; /* Tracking ID */
 };
 
 struct Action {

@@ -84,8 +84,8 @@ static void daemonize(void) {
 }
 
 /* Finger information */
-FingerInfo fingerInfos[2] = { { .x=0, .y=0, .down = 0, .id = 0 }, { .x=0, .y=0,
-		.down = 0, .id = 1 } };
+FingerInfo fingerInfos[2] = { { .rawX=0, .rawY=0, .id = -1, .setThisTime = 0 }, { .rawX=0, .rawY=0,
+		.id = -1, .setThisTime = 0 } };
 
 /* X stuff */
 Display* display;
@@ -115,6 +115,7 @@ int fingersDown = 0;
 int fingersWereDown = 0;
 /* Has button press of first button been called in XTest? */
 int buttonDown = 0;
+
 
 
 /* Handle errors by, well, throwing them away. */
@@ -387,8 +388,50 @@ Window getCurrentWindow() {
 	}
 }
 
+
+/* Sets the calibrated x, y coordinates from the raw coordinates in the given FingerInfo */
+void calibrate(FingerInfo* fingerInfo) {
+	if (calibSwapAxes) {
+
+		fingerInfo->x = (int)
+				((fingerInfo->rawY - calibMinX) * calibFactorX);
+		fingerInfo->y = (int)
+				((fingerInfo->rawX - calibMinY) * calibFactorY);
+
+	} else {
+
+		fingerInfo->x = (int)
+				((fingerInfo->rawX - calibMinX) * calibFactorX);
+		fingerInfo->y = (int)
+				((fingerInfo->rawY - calibMinY) * calibFactorY);
+	}
+	if (calibSwapX)
+		fingerInfo->x = screenWidth
+				- fingerInfo->x;
+	if (calibSwapY)
+		fingerInfo->y = screenHeight
+				- fingerInfo->y;
+
+	if (fingerInfo->x < 0)
+		fingerInfo->x = 0;
+	if (fingerInfo->y < 0)
+		fingerInfo->y = 0;
+	if (fingerInfo->x > screenWidth)
+		fingerInfo->x = screenWidth;
+	if (fingerInfo->y > screenHeight)
+		fingerInfo->y = screenHeight;
+}
+
 /* Process the finger data gathered from the last set of events */
 void processFingers() {
+	int i;
+	fingersDown = 0;
+	for(i = 0; i < 2; i++) {
+		if(fingerInfos[i].id != -1) {
+			calibrate(&(fingerInfos[i]));
+			fingersDown++;
+		}
+	}
 
 	/* If we should activate at release, do it. */
 	if (buttonDown == 0 && fingersDown == 0 && activateAtRelease != 0) {
@@ -690,6 +733,7 @@ void readCalibrationData(int exitOnFail) {
 
 }
 
+
 /* Main function, contains kernel driver event loop */
 int main(int argc, char **argv) {
 
@@ -894,6 +938,13 @@ int main(int argc, char **argv) {
 					xLoopThreadFunction, NULL);
 
 		printf("Reading input from device ... (interrupt to exit)\n");
+
+		/* If set, twofing assumes that the device uses the multitouch slot protocol.
+		   Set to 1 the first time a ABS_MT_SLOT event occurs. Set to 0 the first time a MT_SYNC event occurs.*/
+		int useSlots = 1;
+		int currentSlot = 0;
+		/* If we don't use the slot protocol, we collect all data of one finger into tempFingerInfo and set
+		   it to the correct slot once MT_SYNC occurs. */
 		FingerInfo tempFingerInfo = { -1, -1, -1, -1 };
 
 		/* Kernel device event loop */
@@ -908,73 +959,106 @@ int main(int argc, char **argv) {
 
 					if (2 == ev[i].code) { // MT_Sync : Multitouch event end
 						/* Finger info for one finger collected in tempFingerInfo, so save it to fingerInfos. */
-						/* Currently, we assume that the tracking ids of the fingers are 0,1 -- we should not do this but rather go through all fingers and check for the tracking id. We should also check if there are more than two fingers and set all to down then. */
-						int index = tempFingerInfo.id;
-						if (index == 0 || index == 1) {
-							fingerInfos[index].id = tempFingerInfo.id;
 
-							/* Calibrate coordinates */
-							if (calibSwapAxes) {
+						if(useSlots) {
+							/* This messsage indicates we don't use the slot protocol. So
+							   set useSlots and ignore data for now. */
+							useSlots = 0;
+							currentSlot = -1;
+							if(debugMode) printf("Switch to non-slot protocol.\n");
+						} else {
 
-								fingerInfos[index].x = (int)
-										((tempFingerInfo.y - calibMinX) * calibFactorX);
-								fingerInfos[index].y = (int)
-										((tempFingerInfo.x - calibMinY) * calibFactorY);
-
-							} else {
-
-								fingerInfos[index].x = (int)
-										((tempFingerInfo.x - calibMinX) * calibFactorX);
-								fingerInfos[index].y = (int)
-										((tempFingerInfo.y - calibMinY) * calibFactorY);
-
-//								fingerInfos[index].x = ((tempFingerInfo.x
-//										- calibMinX) * displayWidth)
-//										/ (calibMaxX - calibMinX);
-//								fingerInfos[index].y = ((tempFingerInfo.y
-//										- calibMinY) * displayHeight)
-//										/ (calibMaxY - calibMinY);
+							/* Look for slot to put the data into by looking at the tracking ids */
+							int index = -1;
+							int i;
+							for(i = 0; i < 2; i++) {
+								if(fingerInfos[i].id == tempFingerInfo.id) {
+									index = i;
+									break;
+								}
 							}
-							if (calibSwapX)
-								fingerInfos[index].x = screenWidth
-										- fingerInfos[index].x;
-							if (calibSwapY)
-								fingerInfos[index].y = screenHeight
-										- fingerInfos[index].y;
+							
+							if(index == -1) {
+								for(i = 0; i < 2; i++) {
+									if(fingerInfos[i].id == -1) {
+										/* "Empty" slot, so we can add it. */
+										index = i;
+										fingerInfos[i].id = tempFingerInfo.id;
+										break;
+									}
+								}
+							}
 
-							if (fingerInfos[index].x < 0)
-								fingerInfos[index].x = 0;
-							if (fingerInfos[index].y < 0)
-								fingerInfos[index].y = 0;
-							if (fingerInfos[index].x > screenWidth)
-								fingerInfos[index].x = screenWidth;
-							if (fingerInfos[index].y > screenHeight)
-								fingerInfos[index].y = screenHeight;
+							if(index != -1) {
+								fingerInfos[index].setThisTime = 1;
+								fingerInfos[index].rawX = tempFingerInfo.rawX;
+								fingerInfos[index].rawY = tempFingerInfo.rawY;
+							}
 						}
-						fingerInfos[index].down = 1;
 					} else if (0 == ev[i].code) { // Ev_Sync event end
+
+						if(!useSlots) {
+							/* Clear slots not set this time */
+							int i;
+							for(i = 0; i < 2; i++) {
+								if(fingerInfos[i].setThisTime) {
+									fingerInfos[i].setThisTime = 0;
+								} else {
+									/* Clear slot */
+									fingerInfos[i].id = -1;
+								}
+							}
+						}
+
+
 						/* All finger data received, so process now. */
 						processFingers();
 
-						/* Reset for next set of events */
-						fingerInfos[0].down = 0;
-						fingerInfos[1].down = 0;
-						fingersDown = 0;
-						tempFingerInfo.id = -1;
+						if(!useSlots) {
+							/* If we don't use the slot protocol, reset for next set of events */
+							tempFingerInfo.id = -1;
+						}
 					}
 				} else if (ev[i].type == EV_MSC && (ev[i].code == MSC_RAW
 						|| ev[i].code == MSC_SCAN)) {
+
+				} else if (ev[i].code == 47) {
+					/* Slot event */
+					if(!useSlots) {
+						useSlots = 1;
+						if(debugMode) printf("Switch to slots protocol.\n");
+					}
+					currentSlot = ev[i].value;
+					if(currentSlot < 0 || currentSlot > 1) currentSlot = -1;
 				} else {
 					/* Set finger info values for current finger */
 					if (ev[i].code == 57) {
-						tempFingerInfo.id = ev[i].value;
+						/* ABS_MT_TRACKING_ID */
+						if(useSlots) {
+							if(currentSlot != -1) {
+								fingerInfos[currentSlot].id = ev[i].value;
+							}
+						} else {
+							tempFingerInfo.id = ev[i].value;
+						}
 					};
 					if (ev[i].code == 53) {
-						tempFingerInfo.x = ev[i].value;
-						fingersDown++;
+						if(useSlots) {
+							if(currentSlot != -1) {
+								fingerInfos[currentSlot].rawX = ev[i].value;
+							}
+						} else {
+							tempFingerInfo.rawX = ev[i].value;
+						}
 					};
 					if (ev[i].code == 54) {
-						tempFingerInfo.y = ev[i].value;
+						if(useSlots) {
+							if(currentSlot != -1) {
+								fingerInfos[currentSlot].rawY = ev[i].value;
+							}
+						} else {
+							tempFingerInfo.rawY = ev[i].value;
+						}
 					};
 				}
 			}

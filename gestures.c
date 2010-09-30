@@ -389,7 +389,7 @@ void processFingerGesture(FingerInfo* fingerInfos, int fingersDown, int fingersW
 		} else {
 			int i;
 			for(i = 0; i <= 1; i++) {
-				if(fingerInfos[i].down) {
+				if(fingerInfos[i].id != -1) {
 					currentCenterX = fingerInfos[i].x;
 					currentCenterY = fingerInfos[i].y;
 				}
@@ -483,7 +483,7 @@ void processFingerGesture(FingerInfo* fingerInfos, int fingersDown, int fingersW
 		/* Fake single-touch move event */
 		int i;
 		for(i = 0; i <= 1; i++) {
-			if(fingerInfos[i].down) {
+			if(fingerInfos[i].id != -1) {
 				movePointer(fingerInfos[i].x, fingerInfos[i].y);
 			}
 		}
@@ -500,7 +500,7 @@ void processFingerGesture(FingerInfo* fingerInfos, int fingersDown, int fingersW
 			/* Fake single-touch move event */
 			int i;
 			for(i = 0; i <= 1; i++) {
-				if(fingerInfos[i].down) {
+				if(fingerInfos[i].id != -1) {
 					movePointer(fingerInfos[i].x, fingerInfos[i].y);
 				}
 			}
