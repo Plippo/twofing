@@ -1,0 +1,2 @@
+BUS=="usb",ACTION=="add",KERNEL=="event*",SYSFS{idProduct}=="480d",SYMLINK+="twofingtouch",RUN+="/bin/chmod a+r /dev/twofingtouch"
+
