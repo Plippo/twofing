@@ -1,5 +1,5 @@
 /*
- Copyright (C) 2010, Philipp Merkel <linux@philmerk.de>
+ Copyright (C) 2010, 2011 Philipp Merkel <linux@philmerk.de>
 
  Permission to use, copy, modify, and/or distribute this software for any
  purpose with or without fee is hereby granted, provided that the above
@@ -30,6 +30,8 @@
 #include "gestures.h"
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/select.h>
+#include <time.h>
 
 #define EXIT_SUCCESS 0
 #define EXIT_FAILURE 1
@@ -84,8 +86,8 @@ static void daemonize(void) {
 }
 
 /* Finger information */
-FingerInfo fingerInfos[2] = { { .rawX=0, .rawY=0, .id = -1, .setThisTime = 0 }, { .rawX=0, .rawY=0,
-		.id = -1, .setThisTime = 0 } };
+FingerInfo fingerInfos[2] = { { .rawX=0, .rawY=0, .rawZ=0, .id = -1, .slotUsed = 0 }, { .rawX=0, .rawY=0, .rawZ=0,
+		.id = -1, .slotUsed = 0 } };
 
 /* X stuff */
 Display* display;
@@ -94,13 +96,12 @@ int screenNum;
 int deviceID;
 Atom WM_CLASS;
 pthread_t xLoopThread;
-Time fairlyCurrentTime;
-
 
 /* Calibration data */
 int calibMinX, calibMaxX, calibMinY, calibMaxY;
-double calibFactorX, calibFactorY;
 unsigned char calibSwapX, calibSwapY, calibSwapAxes;
+float calibMatrix[6];
+int calibMatrixUse = 0;
 
 /* The width and height of the screen in pixels */
 unsigned int screenWidth, screenHeight;
@@ -126,49 +127,67 @@ int invalidWindowHandler(Display *dsp, XErrorEvent *err) {
 /* Grab the device so input is captured */
 void grab(Display* display, int grabDeviceID) {
 	XIEventMask device_mask;
-	unsigned char mask_data[1] = { 0 };
+	unsigned char mask_data[8] = { 0,0,0,0,0,0,0,0 };
 	device_mask.mask_len = sizeof(mask_data);
 	device_mask.mask = mask_data;
-	XISetMask(device_mask.mask, XI_ButtonPress);
-	XISetMask(device_mask.mask, XI_ButtonRelease);
-	XISetMask(device_mask.mask, XI_Motion);
+	XISetMask(device_mask.mask, XI_TouchBegin);
+	XISetMask(device_mask.mask, XI_TouchUpdate);
+	XISetMask(device_mask.mask, XI_TouchEnd);
 
 	XIGrabModifiers modifiers[1] = { { 0, 0 } };
 
-	XIGrabButton(display, grabDeviceID, 1, root, None, GrabModeAsync,
-			GrabModeAsync, False, &device_mask, 1, modifiers);
+//	int r = XIGrabButton(display, grabDeviceID, XIAnyButton, root, None, GrabModeAsync,
+//			GrabModeAsync, False, &device_mask, 1, modifiers);
 
+//	int r = XIGrabTouchBegin(display, grabDeviceID, root, None, &device_mask, 0, modifiers);
+
+	int r = XIGrabDevice(display, grabDeviceID, root, CurrentTime, None, GrabModeAsync, GrabModeAsync, False, &device_mask);
+
+//	printf("Grab Result: %i\n", r);
 }
 
 /* Ungrab the device so input can be handled by application directly */
 void ungrab(Display* display, int grabDeviceID) {
-	XIGrabModifiers modifiers[1] = { { 0, 0 } };
-	XIUngrabButton(display, grabDeviceID, 1, root, 1, modifiers);
-
+//	XIGrabModifiers modifiers[1] = { { 0, 0 } };
+//	XIUngrabButton(display, grabDeviceID, 1, root, 1, modifiers);
+	XIUngrabDevice(display, grabDeviceID, CurrentTime);
 }
 
-Time getCurrentTime() {
-	return fairlyCurrentTime;
+TimeVal getCurrentTime() {
+
+	TimeVal time;
+	gettimeofday(&time, NULL);
+
+	return time;
 }
 
+int timeDiff(TimeVal start, TimeVal end)
+{
+	long seconds  = end.tv_sec  - start.tv_sec;
+	long microSeconds = end.tv_usec - start.tv_usec;
+
+	return (seconds * 1000 + microSeconds/1000);
+}
 
 
 /* Activates two finger gesture handling and input grabbing */
 void activate() {
-	activateAtRelease = 0;
+/*	activateAtRelease = 0;
 	if (active == 0) {
+		if(debugMode) printf("Activating twofing\n");
 		grab(display, deviceID);
 		active = 1;
-	}
+	}*/
 }
 
 /* Deactivates two finger gesture handling and input grabbing */
 void deactivate() {
-	activateAtRelease = 0;
+/*	activateAtRelease = 0;
 	if (active) {
+		if(debugMode) printf("Deactivating twofing\n");
 		active = 0;
 		ungrab(display, deviceID);
-	}
+	}*/
 }
 
 /* Send an XTest event to release the first button if it is currently pressed */
@@ -309,7 +328,7 @@ Window getLastChildWindow(Window w) {
 
 		if (childWindows != NULL) {
 			if(childCount > 0) {
-				printf("%i children.\n", childCount);
+				//printf("%i children.\n", childCount);
 				Window child = childWindows[childCount - 1];
 				XFree(childWindows);
 				return child;
@@ -323,10 +342,26 @@ Window getLastChildWindow(Window w) {
 
 }
 
+Window getActiveWindow() {
+
+/*	Window *root_return = None, *child_return = None;
+	int *root_x_return = 0, *root_y_return = 0;
+	int *win_x_return = 0, *win_y_return = 0;
+	unsigned int *mask_return = 0;
+
+	XQueryPointer(display, root, root_return, child_return, root_x_return, root_y_return, 
+                     win_x_return, win_y_return, mask_return);
+
+	return *child_return;*/
+	return getCurrentWindow();
+
+}
+
 /* Returns the active top-level window. A top-level window is one that has WM_CLASS set.
  * May also return None. */
 Window getCurrentWindow() {
 	//if(debugMode) printf("Called getCurrentWindow\n");
+
 	/* First get the window that has the input focus */
 	Window currentWindow;
 	int revert;
@@ -391,26 +426,30 @@ Window getCurrentWindow() {
 
 /* Sets the calibrated x, y coordinates from the raw coordinates in the given FingerInfo */
 void calibrate(FingerInfo* fingerInfo) {
+	float xf; float yf;
 	if (calibSwapAxes) {
 
-		fingerInfo->x = (int)
-				((fingerInfo->rawY - calibMinX) * calibFactorX);
-		fingerInfo->y = (int)
-				((fingerInfo->rawX - calibMinY) * calibFactorY);
+		xf = ((float)(fingerInfo->rawY - calibMinX))/((float) (calibMaxX-calibMinX));
+		yf = ((float)(fingerInfo->rawX - calibMinY))/((float) (calibMaxY-calibMinY));
 
 	} else {
 
-		fingerInfo->x = (int)
-				((fingerInfo->rawX - calibMinX) * calibFactorX);
-		fingerInfo->y = (int)
-				((fingerInfo->rawY - calibMinY) * calibFactorY);
+		xf = ((float)(fingerInfo->rawX - calibMinX))/((float) (calibMaxX-calibMinX));
+		yf = ((float)(fingerInfo->rawY - calibMinY))/((float) (calibMaxY-calibMinY));
+
 	}
-	if (calibSwapX)
-		fingerInfo->x = screenWidth
-				- fingerInfo->x;
-	if (calibSwapY)
-		fingerInfo->y = screenHeight
-				- fingerInfo->y;
+	if (calibSwapX) xf = 1 - xf;
+	if (calibSwapY) yf = 1 - yf;
+
+	if(calibMatrixUse) {
+		float xfold = xf;
+		/* Apply matrix transformation */
+		xf = xf * calibMatrix[0] + yf * calibMatrix[1] + calibMatrix[2];
+		yf = xfold * calibMatrix[3] + yf * calibMatrix[4] + calibMatrix[5];
+	}
+
+	fingerInfo->x = xf * screenWidth;
+	fingerInfo->y = yf * screenHeight;
 
 	if (fingerInfo->x < 0)
 		fingerInfo->x = 0;
@@ -420,6 +459,8 @@ void calibrate(FingerInfo* fingerInfo) {
 		fingerInfo->x = screenWidth;
 	if (fingerInfo->y > screenHeight)
 		fingerInfo->y = screenHeight;
+
+
 }
 
 /* Process the finger data gathered from the last set of events */
@@ -427,17 +468,23 @@ void processFingers() {
 	int i;
 	fingersDown = 0;
 	for(i = 0; i < 2; i++) {
-		if(fingerInfos[i].id != -1) {
+		if(fingerInfos[i].slotUsed) {
 			calibrate(&(fingerInfos[i]));
 			fingersDown++;
 		}
 	}
 
+
+	//TODO remove all code with "active"
+	active = 1;
+	activateAtRelease = 0;
+	
 	/* If we should activate at release, do it. */
 	if (buttonDown == 0 && fingersDown == 0 && activateAtRelease != 0) {
 		releaseButton();
 		activate();
 	}
+
 
 	if (active == 0)
 		return;
@@ -516,14 +563,14 @@ void windowMapped(Window w) {
 	if (isWindowBlacklisted(w)) {
 		if(debugMode) printf("It's blacklisted.\n");
 		/* register for window focus events */
-		XSelectInput(display, w, EnterWindowMask | LeaveWindowMask);
-		if (getCurrentWindow() == w) {
+		//XSelectInput(display, w, EnterWindowMask | LeaveWindowMask);
+		if (isWindowBlacklisted(getCurrentWindow())) {
 			/* If this is current and blacklisted, call enterBlacklistedWindow */
 			enterBlacklistedWindow();
 		}
 	} else {
 		if(debugMode) printf("It's not blacklisted.\n");
-		if (getCurrentWindow() == w) {
+		if (!isWindowBlacklisted(getCurrentWindow())) {
 			if(debugMode) printf("It's the current one!\n");
 			/* It is current and not blacklisted, so we might have left a blacklisted window */
 			leaveWindow();
@@ -535,13 +582,6 @@ void windowMapped(Window w) {
 void setScreenSize(XRRScreenChangeNotifyEvent * evt) {
 	screenWidth = evt->width;
 	screenHeight = evt->height;
-	if(calibMaxX != calibMinX && calibMaxY != calibMinY) {
-		calibFactorX = ( screenWidth / (double) (calibMaxX - calibMinX));
-		calibFactorY = ( screenHeight / (double) (calibMaxY - calibMinY));
-	} else {
-		calibFactorX = 1.;
-		calibFactorY = 1.;
-	}
 	if(debugMode) {
 		printf("New screen size: %i x %i\n", screenWidth, screenHeight);
 	}
@@ -550,45 +590,108 @@ void setScreenSize(XRRScreenChangeNotifyEvent * evt) {
 
 
 /* X thread that processes X events in parallel to kernel device loop */
-void* xLoopThreadFunction(void* arg) {
+void handleXEvent() {
 	XEvent ev;
-	while (1) {
-		XNextEvent(display, &ev);
+	XNextEvent(display, &ev);
+	if(debugMode) printf("Handle event\n");
+	if (XGetEventData(display, &(ev.xcookie))) {
+		XGenericEventCookie *cookie = &(ev.xcookie);
 
-		if (XGetEventData(display, &(ev.xcookie))) {
-			XGenericEventCookie *cookie = &(ev.xcookie);
-			if (cookie->evtype == XI_Motion) {
-				/* Move event */
-				XIDeviceEvent* data = cookie->data;
-				fairlyCurrentTime = data->time;
-//				if (!dontMove) {
-//					/* Fake single-touch move event */
-//					XTestFakeMotionEvent(display, -1, (int) data->root_x,
-//							(int) data->root_y, CurrentTime);
-//					XFlush(display);
+
+		if (cookie->evtype == XI_TouchBegin) {
+			if(debugMode) printf("Touch begin\n");
+		} else if (cookie->evtype == XI_TouchUpdate) {
+			if(debugMode) printf("Touch update\n");
+		} else if (cookie->evtype == XI_TouchEnd) {
+			if(debugMode) printf("Touch end\n");
+		} else if (cookie->evtype == XI_Motion) {
+		} else if (cookie->evtype == XI_PropertyEvent) {
+			/* Device properties changed -> recalibrate. */
+			if(debugMode) printf("Device properties changed.\n");
+			readCalibrationData(0);
+		}
+
+		if (cookie->evtype == XI_TouchBegin || cookie->evtype == XI_TouchUpdate || cookie->evtype == XI_TouchEnd) {
+			
+			// In an ideal world, the following would work. But unfortunately the touch events
+			// delivered by evdev are often crap on the eGalax screen, with missing events when there
+			// should be some. So we still have to read directly from the input device, as bad as that is.
+
+//			XIDeviceEvent * devEvt = (XIDeviceEvent*) cookie->data;
+//			printf("Detail: %i\n", devEvt->detail);
+//			printf("Mask[0]: %i\n", (int) devEvt->valuators.mask[0]);
+//
+//			/* Look for slot to put the data into by looking at the tracking ids */
+//			int index = -1;
+//			int i;
+//			for(i = 0; i < 2; i++) {
+//				if(fingerInfos[i].id == devEvt->detail) {
+//					index = i;
+//					break;
 //				}
-			} else if (cookie->evtype == XI_PropertyEvent) {
-				/* Device properties changed -> recalibrate. */
-				printf("Device properties changed.\n");
-				readCalibrationData(0);
-			}
+//			}
+//
+//			/* No slot for this id found, look for free one */
+//			if(index == -1) {
+//				for(i = 0; i < 2; i++) {
+//					if(!fingerInfos[i].slotUsed) {
+//						/* "Empty" slot, so we can add it. */
+//						index = i;
+//						fingerInfos[i].id = devEvt->detail;
+//						break;
+//					}
+//				}
+//			}
+//
+//			/* We have found a slot */
+//			if(index != -1) {
+//				fingerInfos[index].slotUsed = (cookie->evtype != XI_TouchEnd ? 1 : 0);
+//
+//				i = 0;
+//				if((devEvt->valuators.mask[0] & 1) == 1)
+//				{
+//					fingerInfos[index].rawX = (int) devEvt->valuators.values[i++];
+//				}
+//				if((devEvt->valuators.mask[0] & 2) == 2)
+//				{
+//					fingerInfos[index].rawY = (int) devEvt->valuators.values[i++];
+//				}
+//				if((devEvt->valuators.mask[0] & 4) == 4)
+//				{
+//					fingerInfos[index].rawZ = (int) devEvt->valuators.values[i++];
+//				}
+//			}
+//
+//			processFingers();
 
-			XFreeEventData(display, &(ev.xcookie));
+		}
 
+
+		XFreeEventData(display, &(ev.xcookie));
+
+	} else {
+		if (ev.type == MapNotify) {
+			if(debugMode) printf("Map\n");
+			windowMapped(ev.xmap.window);
+		} else if (ev.type == EnterNotify) {
+			if(debugMode) printf("Enter\n");
+			/* This is only called for blacklisted windows */
+			enterBlacklistedWindow();
+		} else if (ev.type == LeaveNotify) {
+			if(debugMode) printf("Leave\n");
+			/* This should only be called for blacklisted windows, but it's sometimes also
+			 * called when a non-blacklisted window is left. But that's no problem for us. */
+			leaveWindow();
+		} else if(ev.type == 101) {
+			/* Why isn't this magic constant explained anywhere?? */
+			setScreenSize((XRRScreenChangeNotifyEvent *) &ev);
 		} else {
-			if (ev.type == MapNotify) {
-				windowMapped(ev.xmap.window);
-			} else if (ev.type == EnterNotify) {
-				/* This is only called for blacklisted windows */
+			if (isWindowBlacklisted(getCurrentWindow())) {
 				enterBlacklistedWindow();
-			} else if (ev.type == LeaveNotify) {
-				/* This should only be called for blacklisted windows, but it's sometimes also
-				 * called when a non-blacklisted window is left. But that's no problem for us. */
+			} else {
 				leaveWindow();
-			} else if(ev.type == 101) {
-				/* Why isn't this magic constant explained anywhere?? */
-				setScreenSize((XRRScreenChangeNotifyEvent *) &ev);
 			}
+
 		}
 	}
 }
@@ -682,13 +785,33 @@ void readCalibrationData(int exitOnFail) {
 		calibMinY = data[2];
 		calibMaxY = data[3];
 	}
-	calibFactorX = ( screenWidth / (double) (calibMaxX - calibMinX));
-	calibFactorY = ( screenHeight / (double) (calibMaxY - calibMinY));
-	printf("Calibration factors: %f %f\n", calibFactorX, calibFactorY);
 
 	if(data != NULL) {
 		XFree(data);
 	}
+
+	float * data4 = NULL;
+	if(XIGetProperty(display, deviceID, XInternAtom(display,
+			"Coordinate Transformation Matrix", 0), 0, 9 * 32, False, XInternAtom(display,
+			"FLOAT", 0),
+			&retType, &retFormat, &retItems, &retBytesAfter,
+			(unsigned char **) &data4) != Success) {
+		data4 = NULL;
+	}
+	calibMatrixUse = 0;
+	if(data4 != NULL && retItems == 9) {
+		int i;
+		for(i = 0; i < 6; i++) {
+			/* We only take the first two rows of the matrix, the rest is unimportant anyway */
+			calibMatrix[i] = data4[i];
+		}
+		calibMatrixUse = 1;
+	}
+	if(data4 != NULL) {
+		XFree(data4);
+	}
+
+
 
 	unsigned char* data2;
 
@@ -775,7 +898,7 @@ int main(int argc, char **argv) {
 	}
 
 	/* We have two threads accessing X */
-	XInitThreads();
+	//XInitThreads();
 
 	/* Connect to X server */
 	if ((display = XOpenDisplay(NULL)) == NULL) {
@@ -803,8 +926,8 @@ int main(int argc, char **argv) {
 		devname = "/dev/twofingtouch";
 	}
 
-	/* Save return value of pthread_create so we only call it later if it hasn't been successfully called before. */
-	int threadReturn = 1;
+	///* Save return value of pthread_create so we only call it later if it hasn't been successfully called before. */
+	//int threadReturn = 1;
 
 	/* Try to read from device file */
 	int fileDesc;
@@ -812,6 +935,11 @@ int main(int argc, char **argv) {
 		perror("twofing");
 		return 1;
 	}
+
+	fd_set fileDescSet;
+	FD_ZERO(&fileDescSet);
+
+	int eventQueueDesc = XConnectionNumber(display);	
 
 	while (1) {
 		/* Perform initialization at beginning and after module has been re-loaded */
@@ -824,7 +952,8 @@ int main(int argc, char **argv) {
 		ioctl(fileDesc, EVIOCGNAME(sizeof(name)), name);
 		printf("Input device name: \"%s\"\n", name);
 
-		XSetErrorHandler(invalidWindowHandler);
+		//TODO activate again?
+		//XSetErrorHandler(invalidWindowHandler);
 
 
 		int opcode, event, error;
@@ -855,10 +984,10 @@ int main(int argc, char **argv) {
 			exit(1);
 		}
 
-		/* Which version of XI2? We support 2.0 */
-		major = 2; minor = 0;
+		/* Which version of XI2? We support 2.1 */
+		major = 2; minor = 1;
 		if (XIQueryVersion(display, &major, &minor) == BadRequest) {
-			printf("XI2 not available. Server supports %d.%d\n", major, minor);
+			printf("XI 2.1 not available. Server supports %d.%d\n", major, minor);
 			XCloseDisplay(display);
 			exit(1);
 		}
@@ -901,15 +1030,23 @@ int main(int argc, char **argv) {
 
 		/* Receive device property change events */
 		XIEventMask device_mask2;
-		unsigned char mask_data2[2] = { 0, 0 };
+		unsigned char mask_data2[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
 		device_mask2.deviceid = deviceID;
 		device_mask2.mask_len = sizeof(mask_data2);
 		device_mask2.mask = mask_data2;
 		XISetMask(device_mask2.mask, XI_PropertyEvent);
+		XISetMask(device_mask2.mask, XI_TouchBegin);
+		XISetMask(device_mask2.mask, XI_TouchUpdate);
+		XISetMask(device_mask2.mask, XI_TouchEnd);
 		XISelectEvents(display, root, &device_mask2, 1);
 
 		/* Recieve events when screen size changes */
 		XRRSelectInput(display, root, RRScreenChangeNotifyMask);
+
+
+		/* Receive touch events */
+
+
 
 		/* Needed for XTest to work correctly */
 		XTestGrabControl(display, True);
@@ -928,139 +1065,90 @@ int main(int argc, char **argv) {
 		}
 
 		/* Needed for some reason to receive events */
-		XGrabPointer(display, root, False, 0, GrabModeAsync, GrabModeAsync,
+/*		XGrabPointer(display, root, False, 0, GrabModeAsync, GrabModeAsync,
 				None, None, CurrentTime);
-		XUngrabPointer(display, CurrentTime);
+		XUngrabPointer(display, CurrentTime);*/
 
-		/* If it is not already running, create thread that listens to XInput events */
-		if (threadReturn != 0)
-			threadReturn = pthread_create(&xLoopThread, NULL,
-					xLoopThreadFunction, NULL);
+		grab(display, deviceID);		
+
+		///* If it is not already running, create thread that listens to XInput events */
+		//if (threadReturn != 0)
+		//	threadReturn = pthread_create(&xLoopThread, NULL,
+		//			xLoopThreadFunction, NULL);
 
 		printf("Reading input from device ... (interrupt to exit)\n");
 
-		/* If set, twofing assumes that the device uses the multitouch slot protocol.
-		   Set to 1 the first time a ABS_MT_SLOT event occurs. Set to 0 the first time a MT_SYNC event occurs.*/
-		int useSlots = 1;
 		int currentSlot = 0;
-		/* If we don't use the slot protocol, we collect all data of one finger into tempFingerInfo and set
-		   it to the correct slot once MT_SYNC occurs. */
-		FingerInfo tempFingerInfo = { -1, -1, -1, -1 };
 
-		/* Kernel device event loop */
 		while (1) {
-			rd = read(fileDesc, ev, sizeof(struct input_event) * 64);
-			if (rd < (int) sizeof(struct input_event)) {
-				printf("Data stream stopped\n");
-				break;
-			}
-			for (i = 0; i < rd / sizeof(struct input_event); i++) {
-				if (ev[i].type == EV_SYN) {
 
-					if (2 == ev[i].code) { // MT_Sync : Multitouch event end
-						/* Finger info for one finger collected in tempFingerInfo, so save it to fingerInfos. */
 
-						if(useSlots) {
-							/* This messsage indicates we don't use the slot protocol. So
-							   set useSlots and ignore data for now. */
-							useSlots = 0;
-							currentSlot = -1;
-							if(debugMode) printf("Switch to non-slot protocol.\n");
-						} else {
+			FD_SET(fileDesc, &fileDescSet);
+			FD_SET(eventQueueDesc, &fileDescSet);
+			select(MAX(fileDesc, eventQueueDesc) + 1, &fileDescSet, NULL, NULL, NULL);
 
-							/* Look for slot to put the data into by looking at the tracking ids */
-							int index = -1;
-							int i;
-							for(i = 0; i < 2; i++) {
-								if(fingerInfos[i].id == tempFingerInfo.id) {
-									index = i;
-									break;
-								}
-							}
-							
-							if(index == -1) {
-								for(i = 0; i < 2; i++) {
-									if(fingerInfos[i].id == -1) {
-										/* "Empty" slot, so we can add it. */
-										index = i;
-										fingerInfos[i].id = tempFingerInfo.id;
-										break;
-									}
-								}
-							}
+			if(FD_ISSET(fileDesc, &fileDescSet))
+			{
 
-							if(index != -1) {
-								fingerInfos[index].setThisTime = 1;
-								fingerInfos[index].rawX = tempFingerInfo.rawX;
-								fingerInfos[index].rawY = tempFingerInfo.rawY;
-							}
-						}
-					} else if (0 == ev[i].code) { // Ev_Sync event end
 
-						if(!useSlots) {
-							/* Clear slots not set this time */
-							int i;
-							for(i = 0; i < 2; i++) {
-								if(fingerInfos[i].setThisTime) {
-									fingerInfos[i].setThisTime = 0;
-								} else {
-									/* Clear slot */
-									fingerInfos[i].id = -1;
-								}
-							}
+				rd = read(fileDesc, ev, sizeof(struct input_event) * 64);
+				if (rd < (int) sizeof(struct input_event)) {
+					printf("Data stream stopped\n");
+					break;
+				}
+				for (i = 0; i < rd / sizeof(struct input_event); i++) {
+
+					if (ev[i].type == EV_SYN) {
+
+						if (0 == ev[i].code) { // Ev_Sync event end
+							/* All finger data received, so process now. */
+							printf("Process fingers!\n");
+							processFingers();
 						}
 
-
-						/* All finger data received, so process now. */
-						processFingers();
-
-						if(!useSlots) {
-							/* If we don't use the slot protocol, reset for next set of events */
-							tempFingerInfo.id = -1;
-						}
-					}
-				} else if (ev[i].type == EV_MSC && (ev[i].code == MSC_RAW
-						|| ev[i].code == MSC_SCAN)) {
-
-				} else if (ev[i].code == 47) {
-					/* Slot event */
-					if(!useSlots) {
-						useSlots = 1;
-						if(debugMode) printf("Switch to slots protocol.\n");
-					}
-					currentSlot = ev[i].value;
-					if(currentSlot < 0 || currentSlot > 1) currentSlot = -1;
-				} else {
-					/* Set finger info values for current finger */
-					if (ev[i].code == 57) {
-						/* ABS_MT_TRACKING_ID */
-						if(useSlots) {
+					} else if (ev[i].type == EV_MSC && (ev[i].code == MSC_RAW
+							|| ev[i].code == MSC_SCAN)) {
+					} else if (ev[i].code == 47) {
+						currentSlot = ev[i].value;
+						if(currentSlot < 0 || currentSlot > 1) currentSlot = -1;
+					} else {
+						/* Set finger info values for current finger */
+						if (ev[i].code == 57) {
+							/* ABS_MT_TRACKING_ID */
 							if(currentSlot != -1) {
-								fingerInfos[currentSlot].id = ev[i].value;
+								if(ev[i].value == -1)
+								{
+									fingerInfos[currentSlot].slotUsed = 0;
+								}
+								else
+								{
+									fingerInfos[currentSlot].id = ev[i].value;
+									fingerInfos[currentSlot].slotUsed = 1;
+								}
 							}
-						} else {
-							tempFingerInfo.id = ev[i].value;
-						}
-					};
-					if (ev[i].code == 53) {
-						if(useSlots) {
+						};
+						if (ev[i].code == 53) {
 							if(currentSlot != -1) {
 								fingerInfos[currentSlot].rawX = ev[i].value;
 							}
-						} else {
-							tempFingerInfo.rawX = ev[i].value;
-						}
-					};
-					if (ev[i].code == 54) {
-						if(useSlots) {
+						};
+						if (ev[i].code == 54) {
 							if(currentSlot != -1) {
 								fingerInfos[currentSlot].rawY = ev[i].value;
 							}
-						} else {
-							tempFingerInfo.rawY = ev[i].value;
-						}
-					};
+						};
+						if (ev[i].code == 58) {
+							if(currentSlot != -1) {
+								fingerInfos[currentSlot].rawZ = ev[i].value;
+							}
+						};
+					}
 				}
+
+			}
+
+			if(FD_ISSET(eventQueueDesc, &fileDescSet)) {
+				handleXEvent();
 			}
 		}
 

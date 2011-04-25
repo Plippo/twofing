@@ -1,5 +1,5 @@
 /*
- Copyright (C) 2010, Philipp Merkel <linux@philmerk.de>
+ Copyright (C) 2010, 2011 Philipp Merkel <linux@philmerk.de>
 
  Permission to use, copy, modify, and/or distribute this software for any
  purpose with or without fee is hereby granted, provided that the above
@@ -33,7 +33,7 @@ int clickMode;
 
 /* Number of milliseconds before a single click is registered, to give the user time to put down
    second finger for two-finger gestures. */
-#define CLICK_DELAY 200
+#define CLICK_DELAY 50
 
 /* Continuation mode -- when 1, two finger gesture is continued when one finger is released. */
 #define CONTINUATION 1
@@ -52,7 +52,7 @@ int clickMode;
 /* Maximum distance that two fingers have been moved while they were on */
 double maxDist;
 /* The time when the first finger touched */
-Time fingerDownTime;
+TimeVal fingerDownTime;
 /* Were there once two fingers on during the current touch phase? */
 int hadTwoFingersOn = 0;
 
@@ -80,8 +80,8 @@ int lastScrollDirectionX = 0;
 /* 1 if the last Y scroll command was down, -1 if it was up. */
 int lastScrollDirectionY = 0;
 /* Time last scroll command in X/Y action was sent. */
-Time lastScrollXTime;
-Time lastScrollYTime;
+TimeVal lastScrollXTime;
+TimeVal lastScrollYTime;
 /* Interval between the last two X/Y scroll commands. */
 int lastScrollXIntv;
 int lastScrollYIntv;
@@ -177,7 +177,7 @@ int checkGesture(FingerInfo* fingerInfos, int fingersDown) {
 		}
 	}
 
-	/* If we know hat gesture to perform, look if there is something to do */
+	/* If we know what gesture to perform, look if there is something to do */
 	switch (amPerformingGesture) {
 	case GESTURE_SCROLL:
 		;
@@ -192,11 +192,11 @@ int checkGesture(FingerInfo* fingerInfos, int fingersDown) {
 		if (hscrollStep == 0 || vscrollStep == 0)
 			return 0;
 
-		Time currentTime = getCurrentTime();
+		TimeVal currentTime = getCurrentTime();
 		if (hscrolledBy > hscrollStep) {
 			lastScrollDirectionX = 1;
 			lastLastScrollXIntv = lastScrollXIntv;
-			lastScrollXIntv = currentTime - lastScrollXTime;
+			lastScrollXIntv = timeDiff(lastScrollXTime, currentTime);
 			lastScrollXTime = currentTime;
 			if (currentProfile->scrollInherit) {
 				executeAction(&(defaultProfile.scrollRightAction),
@@ -210,7 +210,7 @@ int checkGesture(FingerInfo* fingerInfos, int fingersDown) {
 			return 1;
 		} else if (hscrolledBy < -hscrollStep) {
 			lastLastScrollXIntv = lastScrollXIntv;
-			lastScrollXIntv = currentTime - lastScrollXTime;
+			lastScrollXIntv = timeDiff(lastScrollXTime, currentTime);
 			lastScrollXTime = currentTime;
 			lastScrollDirectionX = -1;
 			if (currentProfile->scrollInherit) {
@@ -226,7 +226,7 @@ int checkGesture(FingerInfo* fingerInfos, int fingersDown) {
 		}
 		if (vscrolledBy > vscrollStep) {
 			lastLastScrollYIntv = lastScrollYIntv;
-			lastScrollYIntv = currentTime - lastScrollYTime;
+			lastScrollYIntv = timeDiff(lastScrollYTime, currentTime);
 			lastScrollYTime = currentTime;
 			lastScrollDirectionY = 1;
 			if (currentProfile->scrollInherit) {
@@ -241,7 +241,7 @@ int checkGesture(FingerInfo* fingerInfos, int fingersDown) {
 			return 1;
 		} else if (vscrolledBy < -vscrollStep) {
 			lastLastScrollYIntv = lastScrollYIntv;
-			lastScrollYIntv = currentTime - lastScrollYTime;
+			lastScrollYIntv = timeDiff(lastScrollYTime, currentTime);
 			lastScrollYTime = currentTime;
 			lastScrollDirectionY = -1;
 			if (currentProfile->scrollInherit) {
@@ -336,7 +336,7 @@ void processFingerGesture(FingerInfo* fingerInfos, int fingersDown, int fingersW
 		stopEasingThread();
 	}
 
-	Time currentTime = getCurrentTime();
+	TimeVal currentTime = getCurrentTime();
 	if (TWO_FINGERS_DOWN) {
 		/* Second finger touched (and maybe first too) */
 
@@ -351,7 +351,7 @@ void processFingerGesture(FingerInfo* fingerInfos, int fingersDown, int fingersW
 		hadTwoFingersOn = 1;
 
 		/* Get current profile */
-		currentProfile = getWindowProfile(getCurrentWindow());
+		currentProfile = getWindowProfile(getActiveWindow());
 		if(inDebugMode()) {
 			if(currentProfile->windowClass != NULL) {
 				printf("Use profile '%s'\n", currentProfile->windowClass);
@@ -359,7 +359,6 @@ void processFingerGesture(FingerInfo* fingerInfos, int fingersDown, int fingersW
 				printf("Use default profile.\n");
 			}
 		}
-
 
 		/* If there had already been a single-touch event raised because the
 		 * user was too slow, stop it now. */
@@ -389,7 +388,7 @@ void processFingerGesture(FingerInfo* fingerInfos, int fingersDown, int fingersW
 		} else {
 			int i;
 			for(i = 0; i <= 1; i++) {
-				if(fingerInfos[i].id != -1) {
+				if(fingerInfos[i].slotUsed) {
 					currentCenterX = fingerInfos[i].x;
 					currentCenterY = fingerInfos[i].y;
 				}
@@ -431,8 +430,8 @@ void processFingerGesture(FingerInfo* fingerInfos, int fingersDown, int fingersW
 
 				/* Check if scrolling intervals are not too long. Also check if last scrolling on an axis is longer
 				   ago than twice its interval, which means the scrolling has been stopped or extremely slowed down since. */
-				if(lastScrollYIntv == 0 || currentTime - lastScrollYTime > lastScrollYIntv * 2 || lastScrollYIntv > MAX_EASING_START_INTERVAL) dirY = 0;
-				if(lastScrollXIntv == 0 || currentTime - lastScrollXTime > lastScrollXIntv * 2 || lastScrollXIntv > MAX_EASING_START_INTERVAL) dirX = 0;
+				if(lastScrollYIntv == 0 || timeDiff(lastScrollYTime, currentTime) > lastScrollYIntv * 2 || lastScrollYIntv > MAX_EASING_START_INTERVAL) dirY = 0;
+				if(lastScrollXIntv == 0 || timeDiff(lastScrollXTime, currentTime) > lastScrollXIntv * 2 || lastScrollXIntv > MAX_EASING_START_INTERVAL) dirX = 0;
 				if(dirX != 0 || dirY != 0) {
 					if(dirX != 0 && dirY != 0) {
 						/* As we only support one interval, only use larger axis. */
@@ -483,7 +482,7 @@ void processFingerGesture(FingerInfo* fingerInfos, int fingersDown, int fingersW
 		/* Fake single-touch move event */
 		int i;
 		for(i = 0; i <= 1; i++) {
-			if(fingerInfos[i].id != -1) {
+			if(fingerInfos[i].slotUsed) {
 				movePointer(fingerInfos[i].x, fingerInfos[i].y);
 			}
 		}
@@ -491,7 +490,7 @@ void processFingerGesture(FingerInfo* fingerInfos, int fingersDown, int fingersW
 	} else if (fingersDown == 1) {
 		/* Moved with one finger */
 		if (hadTwoFingersOn == 0 && !isButtonDown()) {
-			if (currentTime > fingerDownTime + CLICK_DELAY) {
+			if (timeDiff(fingerDownTime, currentTime) > CLICK_DELAY) {
 				/* Delay has passed, no gesture been performed, so perform single-touch press now */
 				pressButton();
 			}
@@ -500,13 +499,14 @@ void processFingerGesture(FingerInfo* fingerInfos, int fingersDown, int fingersW
 			/* Fake single-touch move event */
 			int i;
 			for(i = 0; i <= 1; i++) {
-				if(fingerInfos[i].id != -1) {
+				if(fingerInfos[i].slotUsed) {
 					movePointer(fingerInfos[i].x, fingerInfos[i].y);
 				}
 			}
 
 		}
 	} else if (fingersDown == 0 && fingersWereDown > 0) {
+		printf("Last finger released!\n");
 		/* Last finger released */
 		if (hadTwoFingersOn == 0 && !isButtonDown()) {
 			/* The button press time has not been reached yet, and we never had two
@@ -514,9 +514,11 @@ void processFingerGesture(FingerInfo* fingerInfos, int fingersDown, int fingersW
 			 * we simulate button down and up now. */
 			pressButton();
 			releaseButton();
+			printf("Handle release 1\n");
 		} else {
 			/* We release the button if it is down. */
 			releaseButton();
+			printf("Handle release 2\n");
 		}
 	}
 	if (fingersDown == 0) {
@@ -592,7 +594,7 @@ int isWindowBlacklistedForGestures(Window w) {
 	} else {
 		if(inDebugMode()) printf("Found window with id %i and no class.\n", (int) w);
 		//if(inDebugMode()) printf("Look for another child\n");
-		//return isWindowBlacklisted(getLastChildWindow(w));
+		return isWindowBlacklisted(getLastChildWindow(w));
 		return 0;
 	}
 }

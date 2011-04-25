@@ -1,6 +1,6 @@
 CC = gcc
 OBJECTS = twofingemu.o gestures.o easing.o
-LIBS = -lm -lpthread -lXtst -lXrandr -lX11
+LIBS = -lm -lpthread -lXtst -lXrandr -lX11 -lXi
 CFLAGS = -Wall -O2
 BINDIR = $(DESTDIR)/usr/bin
 NAME = twofing

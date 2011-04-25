@@ -24,7 +24,7 @@
 char* blacklist[] = { "xournal", "gimp-2.6", "gimp", "mypaint", "inkscape", NULL };
 
 /* WM-Blacklist */
-char* wmBlacklist[] = { "kwin", "mutter", NULL };
+char* wmBlacklist[] = { "kwin", "mutter", "metacity", "compiz", "unity", NULL };
 
 /* Profiles */
 int profileCount = 8;

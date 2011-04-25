@@ -1,5 +1,5 @@
 /*
- Copyright (C) 2010, Philipp Merkel <linux@philmerk.de>
+ Copyright (C) 2010, 2011 Philipp Merkel <linux@philmerk.de>
 
  Permission to use, copy, modify, and/or distribute this software for any
  purpose with or without fee is hereby granted, provided that the above
@@ -52,103 +52,14 @@ Profile* easingProfile;
 
 /* Thread responsible for easing */
 void* easingThreadFunction(void* arg) {
-	//TODO before each step, check if old window is still active to prevent scrolling in wrong window.
-
-	if(inDebugMode()) printf("Easing Thread started\n");
-	int nextInterval = easingInterval;
-	int lastTime = 0;
-	while(1) {
-		usleep((nextInterval - lastTime) * 1000);
-
-		pthread_mutex_lock(&easingMutex);
-		if(stopEasing || nextInterval > MAX_EASING_INTERVAL) {
-			stopEasing = 0;
-			/* Wait until woken up */
-			easingActive = 0;
-			if(inDebugMode()) printf("Easing thread goes to sleep. zZzZzZzZ...\n");
-			while(!easingWakeup) {
-				if(inDebugMode()) printf("Wait for wakeup...\n");
-				pthread_cond_wait(&easingWaitingCond, &easingMutex);
-			}
-			easingWakeup = 0;
-			if(inDebugMode()) printf("*rrrrring* Easing thread woken up!\n");
-			easingActive = 1;
-			nextInterval = easingInterval;
-			if(inDebugMode()) printf("Next interval: %i\n", nextInterval);
-		}
-		pthread_mutex_unlock(&easingMutex);
-
-		if(inDebugMode()) printf("Easing step\n");
-		if (easingProfile->scrollInherit) {
-			if(easingDirectionY == -1) {
-				executeAction(&(getDefaultProfile()->scrollUpAction),
-					EXECUTEACTION_BOTH);
-			}
-			if(easingDirectionY == 1) {
-				executeAction(&(getDefaultProfile()->scrollDownAction),
-					EXECUTEACTION_BOTH);
-			}
-			if(easingDirectionX == -1) {
-				executeAction(&(getDefaultProfile()->scrollLeftAction),
-					EXECUTEACTION_BOTH);
-			}
-			if(easingDirectionX == 1) {
-				executeAction(&(getDefaultProfile()->scrollRightAction),
-					EXECUTEACTION_BOTH);
-			}
-		} else {
-			if(easingDirectionY == -1) {
-				executeAction(&(easingProfile->scrollUpAction),
-					EXECUTEACTION_BOTH);
-			}
-			if(easingDirectionY == 1) {
-				executeAction(&(easingProfile->scrollDownAction),
-					EXECUTEACTION_BOTH);
-			}
-			if(easingDirectionX == -1) {
-				executeAction(&(easingProfile->scrollLeftAction),
-					EXECUTEACTION_BOTH);
-			}
-			if(easingDirectionX == 1) {
-				executeAction(&(easingProfile->scrollRightAction),
-					EXECUTEACTION_BOTH);
-			}
-		}
-		nextInterval = (int) (((float) nextInterval) * 1.15);
-		if(inDebugMode()) printf("easing step finished. Next interval: %i\n", nextInterval);
-	}
 	return NULL;
 }
 
 /* Starts the easing; profile, interval and directions have to be set before. */
 void startEasing(Profile * profile, int directionX, int directionY, int interval) {
-	pthread_mutex_lock(&easingMutex);
-	if(inDebugMode()) printf("Really, really start easing!\n");
-
-	easingDirectionX = directionX;
-	easingDirectionY = directionY;
-	easingProfile = profile;
-	easingInterval = interval;
-
-	stopEasing = 0;
-	if(!easingThreadActive) {
-		pthread_create(&easingThread, NULL,
-					easingThreadFunction, NULL);
-		easingThreadActive = 1;
-	} else {
-		/* wake up easing thread */
-		easingWakeup = 1;
-		pthread_cond_broadcast(&easingWaitingCond);
-	}
-	pthread_mutex_unlock(&easingMutex);
 }
 /* Stops the easing. */
 void stopEasingThread() {
-	pthread_mutex_lock(&easingMutex);
-	if(easingThreadActive) {
-		stopEasing = 1;
-	}
-	pthread_mutex_unlock(&easingMutex);
 }
 
 
