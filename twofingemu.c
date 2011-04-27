@@ -106,11 +106,6 @@ int calibMatrixUse = 0;
 /* The width and height of the screen in pixels */
 unsigned int screenWidth, screenHeight;
 
-/* Two finger gestures activated (and input grabbed)? */
-int active = 0;
-/* Activate two finger gestures (and grab input) as soon as the fingers have been removed */
-int activateAtRelease = 0;
-
 /* Finger data */
 int fingersDown = 0;
 int fingersWereDown = 0;
@@ -170,25 +165,6 @@ int timeDiff(TimeVal start, TimeVal end)
 }
 
 
-/* Activates two finger gesture handling and input grabbing */
-void activate() {
-/*	activateAtRelease = 0;
-	if (active == 0) {
-		if(debugMode) printf("Activating twofing\n");
-		grab(display, deviceID);
-		active = 1;
-	}*/
-}
-
-/* Deactivates two finger gesture handling and input grabbing */
-void deactivate() {
-/*	activateAtRelease = 0;
-	if (active) {
-		if(debugMode) printf("Deactivating twofing\n");
-		active = 0;
-		ungrab(display, deviceID);
-	}*/
-}
 
 /* Send an XTest event to release the first button if it is currently pressed */
 void releaseButton() {
@@ -213,9 +189,10 @@ int isButtonDown() {
 
 
 /* Moves the pointer to the given position */
-void movePointer(int x, int y) {
+void movePointer(int x, int y, int z) {
 	/* Move pointer to center between touch points */
 	XTestFakeMotionEvent(display, -1, x, y, CurrentTime);
+	/* TODO: Use sendEvent and send XI events to also send pressure level */
 	XFlush(display);
 }
 
@@ -474,47 +451,10 @@ void processFingers() {
 		}
 	}
 
-
-	//TODO remove all code with "active"
-	active = 1;
-	activateAtRelease = 0;
-	
-	/* If we should activate at release, do it. */
-	if (buttonDown == 0 && fingersDown == 0 && activateAtRelease != 0) {
-		releaseButton();
-		activate();
-	}
-
-
-	if (active == 0)
-		return;
-
 	processFingerGesture(fingerInfos, fingersDown, fingersWereDown);
 
 	/* Save number of fingers to compare next time */
 	fingersWereDown = fingersDown;
-
-	/* If we should activate at release, do it (now again because fingersDown might have changed). */
-	if (buttonDown == 0 && fingersDown == 0 && activateAtRelease != 0) {
-		releaseButton();
-		activate();
-	}
-}
-
-/* Called when a blacklisted window is left (for some reasons sometimes also if it's not blacklisted) */
-void leaveWindow() {
-	if (active == 0) {
-
-		activateAtRelease = 1;
-	}
-}
-
-/* Called when a blacklisted window is focused */
-void enterBlacklistedWindow() {
-	//printf("Entered bad window.\n");
-	activateAtRelease = 0;
-	releaseButton();
-	deactivate();
 }
 
 /* Returns a pointer to the profile of the currently selected
@@ -553,30 +493,6 @@ int isWindowBlacklisted(Window w) {
 	if(w == None) return 0;
 
 	return isWindowBlacklistedForGestures(w);
-}
-
-/* Called when a new window is mapped. Checks whether it is blacklisted and registers
- * the activation events if yes. Then checks if it is active and, if yes, calls enter/leave.
- */
-void windowMapped(Window w) {
-
-	if (isWindowBlacklisted(w)) {
-		if(debugMode) printf("It's blacklisted.\n");
-		/* register for window focus events */
-		//XSelectInput(display, w, EnterWindowMask | LeaveWindowMask);
-		if (isWindowBlacklisted(getCurrentWindow())) {
-			/* If this is current and blacklisted, call enterBlacklistedWindow */
-			enterBlacklistedWindow();
-		}
-	} else {
-		if(debugMode) printf("It's not blacklisted.\n");
-		if (!isWindowBlacklisted(getCurrentWindow())) {
-			if(debugMode) printf("It's the current one!\n");
-			/* It is current and not blacklisted, so we might have left a blacklisted window */
-			leaveWindow();
-		}
-	}
-
 }
 
 void setScreenSize(XRRScreenChangeNotifyEvent * evt) {
@@ -670,49 +586,9 @@ void handleXEvent() {
 		XFreeEventData(display, &(ev.xcookie));
 
 	} else {
-		if (ev.type == MapNotify) {
-			if(debugMode) printf("Map\n");
-			windowMapped(ev.xmap.window);
-		} else if (ev.type == EnterNotify) {
-			if(debugMode) printf("Enter\n");
-			/* This is only called for blacklisted windows */
-			enterBlacklistedWindow();
-		} else if (ev.type == LeaveNotify) {
-			if(debugMode) printf("Leave\n");
-			/* This should only be called for blacklisted windows, but it's sometimes also
-			 * called when a non-blacklisted window is left. But that's no problem for us. */
-			leaveWindow();
-		} else if(ev.type == 101) {
+		if(ev.type == 101) {
 			/* Why isn't this magic constant explained anywhere?? */
 			setScreenSize((XRRScreenChangeNotifyEvent *) &ev);
-		} else {
-			if (isWindowBlacklisted(getCurrentWindow())) {
-				enterBlacklistedWindow();
-			} else {
-				leaveWindow();
-			}
-
-		}
-	}
-}
-
-/* Checks for all running windows if they are blacklisted and/or the current window.
- * Registers enter/leave event handlers for blacklisted windows. Executes them for
- * the current window. */
-void checkRunningWindows() {
-	Window aroot;
-	Window parent;
-	Window* childWindows = NULL;
-	unsigned int childCount;
-	/* Get all top-level windows */
-	if(XQueryTree(display, root, &aroot, &parent, &childWindows, &childCount)) {
-
-		if (childWindows != NULL) {
-			int i;
-			for (i = 0; i < childCount; i++) {
-				windowMapped(childWindows[i]);
-			}
-			XFree(childWindows);
 		}
 	}
 }
@@ -1050,19 +926,7 @@ int main(int argc, char **argv) {
 
 		/* Needed for XTest to work correctly */
 		XTestGrabControl(display, True);
-		active = 0;
-		checkRunningWindows();
-		Window w = getCurrentWindow();
-		activateAtRelease = 0;
-		if(debugMode) printf("Current Window: %i\n", (int) w);
 
-		if(isWindowBlacklisted(w)) {
-			/* Current is blacklisted, call enterBlacklistedWindow */
-			enterBlacklistedWindow();
-		} else {
-			/* Current is not blacklisted, so we might have left a blacklisted window */
-			activate();
-		}
 
 		/* Needed for some reason to receive events */
 /*		XGrabPointer(display, root, False, 0, GrabModeAsync, GrabModeAsync,
@@ -1156,9 +1020,7 @@ int main(int argc, char **argv) {
 		close(fileDesc);
 
 		/* Clean up */
-		if (active) {
-			ungrab(display, deviceID);
-		}
+		ungrab(display, deviceID);
 		releaseButton();
 
 		/* Wait until device file is there again */

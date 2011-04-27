@@ -376,7 +376,7 @@ void processFingerGesture(FingerInfo* fingerInfos, int fingersDown, int fingersW
 		/* We have not decided on a gesture yet. */
 		amPerformingGesture = GESTURE_UNDECIDED;
 
-		movePointer(gestureStartCenterX, gestureStartCenterY);
+		movePointer(gestureStartCenterX, gestureStartCenterY, 0);
 	} else if (TWO_FINGERS_ON) {
 
 		/* Moved with two fingers */
@@ -399,7 +399,7 @@ void processFingerGesture(FingerInfo* fingerInfos, int fingersDown, int fingersW
 		 * we need to move the pointer */
 		if (amPerformingGesture == GESTURE_SCROLL && dragScrolling) {
 			/* Move pointer to center between touch points */
-			movePointer(currentCenterX, currentCenterY);
+			movePointer(currentCenterX, currentCenterY, 0);
 		}
 
 		/* Perform gestures as long as there are some. */
@@ -461,10 +461,11 @@ void processFingerGesture(FingerInfo* fingerInfos, int fingersDown, int fingersW
 				== GESTURE_UNDECIDED) && maxDist < 10) {
 			/* Move pointer to correct position */
 			if(clickMode == 2) {
-				movePointer(gestureStartCenterX, gestureStartCenterY);
+				/* Assume first finger is at ID 0 and second finger at ID 1, might have to be changed later */
+				movePointer(gestureStartCenterX, gestureStartCenterY, fingerInfos[0].rawZ);
 			} else {
 				/* Assume first finger is at ID 0 and second finger at ID 1, might have to be changed later */
-				movePointer(fingerInfos[clickMode].x, fingerInfos[clickMode].y);
+				movePointer(fingerInfos[clickMode].x, fingerInfos[clickMode].y, fingerInfos[clickMode].rawZ);
 			}
 
 			if (currentProfile->tapInherit) {
@@ -483,7 +484,7 @@ void processFingerGesture(FingerInfo* fingerInfos, int fingersDown, int fingersW
 		int i;
 		for(i = 0; i <= 1; i++) {
 			if(fingerInfos[i].slotUsed) {
-				movePointer(fingerInfos[i].x, fingerInfos[i].y);
+				movePointer(fingerInfos[i].x, fingerInfos[i].y, fingerInfos[i].rawZ);
 			}
 		}
 
@@ -500,7 +501,7 @@ void processFingerGesture(FingerInfo* fingerInfos, int fingersDown, int fingersW
 			int i;
 			for(i = 0; i <= 1; i++) {
 				if(fingerInfos[i].slotUsed) {
-					movePointer(fingerInfos[i].x, fingerInfos[i].y);
+					movePointer(fingerInfos[i].x, fingerInfos[i].y, fingerInfos[i].rawZ);
 				}
 			}
 

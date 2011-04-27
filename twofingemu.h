@@ -95,10 +95,7 @@ struct Profile {
 int inDebugMode();
 
 void *xLoopThreadFunction(void *arg);
-void windowMapped(Window w);
 int isWindowBlacklisted(Window w);
-void enterBlacklistedWindow();
-void leaveWindow();
 
 Window getCurrentWindow();
 char* getWindowClass(Window);
@@ -112,11 +109,8 @@ void pressButton();
 void releaseButton();
 int isButtonDown();
 
-void movePointer(int, int);
+void movePointer(int, int, int);
 void executeAction(Action* action, int what);
-
-void deactivate();
-void activate();
 
 void ungrab(Display *display,int deviceid);
 void grab(Display *display,int deviceid);
