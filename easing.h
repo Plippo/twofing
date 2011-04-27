@@ -25,6 +25,9 @@
 
 
 void startEasing(Profile *, int, int, int);
-void stopEasingThread();
+void stopEasing();
+int isEasingActive();
+TimeVal* getEasingStepTimeVal();
+void checkEasingStep();
 
 #endif /* EASING_H_ */

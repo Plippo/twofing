@@ -33,7 +33,7 @@ int clickMode;
 
 /* Number of milliseconds before a single click is registered, to give the user time to put down
    second finger for two-finger gestures. */
-#define CLICK_DELAY 50
+#define CLICK_DELAY 100
 
 /* Continuation mode -- when 1, two finger gesture is continued when one finger is released. */
 #define CONTINUATION 1
@@ -333,7 +333,7 @@ int checkGesture(FingerInfo* fingerInfos, int fingersDown) {
 void processFingerGesture(FingerInfo* fingerInfos, int fingersDown, int fingersWereDown) {
 
 	if(fingersDown != 0 && fingersWereDown == 0) {
-		stopEasingThread();
+		stopEasing();
 	}
 
 	TimeVal currentTime = getCurrentTime();

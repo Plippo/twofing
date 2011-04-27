@@ -28,6 +28,7 @@
 #include <X11/extensions/Xrandr.h>
 #include "twofingemu.h"
 #include "gestures.h"
+#include "easing.h"
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/select.h>
@@ -129,7 +130,7 @@ void grab(Display* display, int grabDeviceID) {
 	XISetMask(device_mask.mask, XI_TouchUpdate);
 	XISetMask(device_mask.mask, XI_TouchEnd);
 
-	XIGrabModifiers modifiers[1] = { { 0, 0 } };
+//	XIGrabModifiers modifiers[1] = { { 0, 0 } };
 
 //	int r = XIGrabButton(display, grabDeviceID, XIAnyButton, root, None, GrabModeAsync,
 //			GrabModeAsync, False, &device_mask, 1, modifiers);
@@ -138,7 +139,7 @@ void grab(Display* display, int grabDeviceID) {
 
 	int r = XIGrabDevice(display, grabDeviceID, root, CurrentTime, None, GrabModeAsync, GrabModeAsync, False, &device_mask);
 
-//	printf("Grab Result: %i\n", r);
+	if(debugMode) printf("Grab Result: %i\n", r);
 }
 
 /* Ungrab the device so input can be handled by application directly */
@@ -949,7 +950,10 @@ int main(int argc, char **argv) {
 
 			FD_SET(fileDesc, &fileDescSet);
 			FD_SET(eventQueueDesc, &fileDescSet);
-			select(MAX(fileDesc, eventQueueDesc) + 1, &fileDescSet, NULL, NULL, NULL);
+
+			select(MAX(fileDesc, eventQueueDesc) + 1, &fileDescSet, NULL, NULL, getEasingStepTimeVal());
+			
+			checkEasingStep();
 
 			if(FD_ISSET(fileDesc, &fileDescSet))
 			{

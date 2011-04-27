@@ -27,19 +27,9 @@
 
 
 /* Variables for easing: */
-/* The thread used for easing */
-pthread_t easingThread;
-/* Set to stop easing thread (as calling pthread_cancel didn't work well) */
-int stopEasing = 0;
-/* 1 if an easing thread is currently running. */
-int easingThreadActive = 0;
 /* 1 if there is currently easing going on */
 int easingActive = 0;
-/* Mutex for starting/stopping the easing thread */
-pthread_mutex_t easingMutex = PTHREAD_MUTEX_INITIALIZER;  
-/* Condition variable for the easing thread to wait */
-int easingWakeup = 0;
-pthread_cond_t  easingWaitingCond = PTHREAD_COND_INITIALIZER;
+
 /* Start Interval between two easing steps */
 int easingInterval = 0;
 /* 1 if easing shall move to the right, -1 if it shall move to the left. */
@@ -49,17 +39,93 @@ int easingDirectionY = 0;
 /* The profile for the easing */
 Profile* easingProfile;
 
-
-/* Thread responsible for easing */
-void* easingThreadFunction(void* arg) {
-	return NULL;
-}
+TimeVal easingStepTimeVal;
 
 /* Starts the easing; profile, interval and directions have to be set before. */
 void startEasing(Profile * profile, int directionX, int directionY, int interval) {
+	easingDirectionX = directionX;
+	easingDirectionY = directionY;
+	easingProfile = profile;
+	easingInterval = interval;
+	easingStepTimeVal.tv_sec = interval / 1000;
+	easingStepTimeVal.tv_usec = (interval % 1000) * 1000;
+	easingActive = 1;
+
 }
+
 /* Stops the easing. */
-void stopEasingThread() {
+void stopEasing() {
+	if(easingActive) {
+		easingActive = 0;
+	}
 }
 
+void checkEasingStep()
+{
+	if(easingActive && easingStepTimeVal.tv_sec <= 0 && easingStepTimeVal.tv_usec <= 0)
+	{
+		
+		if(inDebugMode()) printf("Easing step\n");
+		if (easingProfile->scrollInherit) {
+			if(easingDirectionY == -1) {
+				executeAction(&(getDefaultProfile()->scrollUpAction),
+					EXECUTEACTION_BOTH);
+			}
+			if(easingDirectionY == 1) {
+				executeAction(&(getDefaultProfile()->scrollDownAction),
+					EXECUTEACTION_BOTH);
+			}
+			if(easingDirectionX == -1) {
+				executeAction(&(getDefaultProfile()->scrollLeftAction),
+					EXECUTEACTION_BOTH);
+			}
+			if(easingDirectionX == 1) {
+				executeAction(&(getDefaultProfile()->scrollRightAction),
+					EXECUTEACTION_BOTH);
+			}
+		} else {
+			if(easingDirectionY == -1) {
+				executeAction(&(easingProfile->scrollUpAction),
+					EXECUTEACTION_BOTH);
+			}
+			if(easingDirectionY == 1) {
+				executeAction(&(easingProfile->scrollDownAction),
+					EXECUTEACTION_BOTH);
+			}
+			if(easingDirectionX == -1) {
+				executeAction(&(easingProfile->scrollLeftAction),
+					EXECUTEACTION_BOTH);
+			}
+			if(easingDirectionX == 1) {
+				executeAction(&(easingProfile->scrollRightAction),
+					EXECUTEACTION_BOTH);
+			}
+		}
 
+
+		easingInterval = (int) (((float) easingInterval) * 1.15);
+
+		easingStepTimeVal.tv_sec = easingInterval / 1000;
+		easingStepTimeVal.tv_usec = (easingInterval % 1000) * 1000;
+
+		if(easingInterval > MAX_EASING_INTERVAL) {
+			easingActive = 0;
+		}
+
+	 }
+}
+
+TimeVal* getEasingStepTimeVal()
+{
+	if(easingActive) {
+		return &easingStepTimeVal;
+	} else {
+		return NULL;
+	}
+
+}
+
+int isEasingActive()
+{
+	return easingActive;
+}
