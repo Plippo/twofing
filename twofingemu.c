@@ -18,8 +18,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-#include <pthread.h>
 #include <X11/Xutil.h>
+#include <X11/X.h>
 #include <X11/Xos.h>
 #include <X11/Xatom.h>
 #include <X11/extensions/XTest.h>
@@ -87,8 +87,8 @@ static void daemonize(void) {
 }
 
 /* Finger information */
-FingerInfo fingerInfos[2] = { { .rawX=0, .rawY=0, .rawZ=0, .id = -1, .slotUsed = 0 }, { .rawX=0, .rawY=0, .rawZ=0,
-		.id = -1, .slotUsed = 0 } };
+FingerInfo fingerInfos[2] = { { .rawX=0, .rawY=0, .rawZ=0, .id = -1, .slotUsed = 0, .setThisTime = 0 }, { .rawX=0, .rawY=0, .rawZ=0,
+		.id = -1, .slotUsed = 0, .setThisTime = 0 } };
 
 /* X stuff */
 Display* display;
@@ -113,7 +113,8 @@ int fingersWereDown = 0;
 /* Has button press of first button been called in XTest? */
 int buttonDown = 0;
 
-
+/* Does the device use the legacy MT protocol? */
+int useLegacyProtocol = 0;
 
 /* Handle errors by, well, throwing them away. */
 int invalidWindowHandler(Display *dsp, XErrorEvent *err) {
@@ -126,20 +127,23 @@ void grab(Display* display, int grabDeviceID) {
 	unsigned char mask_data[8] = { 0,0,0,0,0,0,0,0 };
 	device_mask.mask_len = sizeof(mask_data);
 	device_mask.mask = mask_data;
-	XISetMask(device_mask.mask, XI_TouchBegin);
-	XISetMask(device_mask.mask, XI_TouchUpdate);
-	XISetMask(device_mask.mask, XI_TouchEnd);
+	//XISetMask(device_mask.mask, XI_TouchBegin);
+	//XISetMask(device_mask.mask, XI_TouchUpdate);
+	//XISetMask(device_mask.mask, XI_TouchEnd);
+	XISetMask(device_mask.mask, XI_Motion);
+	XISetMask(device_mask.mask, XI_ButtonPress);
 
-//	XIGrabModifiers modifiers[1] = { { 0, 0 } };
-
-//	int r = XIGrabButton(display, grabDeviceID, XIAnyButton, root, None, GrabModeAsync,
-//			GrabModeAsync, False, &device_mask, 1, modifiers);
+//	XIGrabModifiers modifiers;
+//	modifiers.modifiers = XIAnyModifier;
+//	int r = XIGrabButton(display, grabDeviceID, XIAnyButton, root, None, GrabModeSync,
+//			GrabModeAsync, True, &device_mask, 1, &modifiers);
 
 //	int r = XIGrabTouchBegin(display, grabDeviceID, root, None, &device_mask, 0, modifiers);
 
 	int r = XIGrabDevice(display, grabDeviceID, root, CurrentTime, None, GrabModeAsync, GrabModeAsync, False, &device_mask);
 
 	if(debugMode) printf("Grab Result: %i\n", r);
+
 }
 
 /* Ungrab the device so input can be handled by application directly */
@@ -172,12 +176,35 @@ void releaseButton() {
 	if (buttonDown) {
 		buttonDown = 0;
 		XTestFakeButtonEvent(display, 1, False, CurrentTime);
+		
+		/*printf("RELEASE!\n");
+		XDevice * dev = XOpenDevice(display, deviceID);
+		int axes[3] = {fingerInfos[0].rawX, fingerInfos[0].rawY, fingerInfos[0].rawZ};
+		XTestFakeDeviceButtonEvent(display, dev, 1, False, axes, 3, 0);
+		XCloseDevice(display, dev);
+
 		XFlush(display);
+		grab(display, deviceID);*/
 	}
 }
 /* Send an XTest event to press the first button if it is not pressed yet */
 void pressButton() {
 	if(!buttonDown) {
+
+/*		XDevice * dev = XOpenDevice(display, deviceID);
+		int axes[3] = {fingerInfos[0].rawX, fingerInfos[0].rawY, fingerInfos[0].rawZ};
+		XTestFakeDeviceButtonEvent(display, dev, 1, False, axes, 3, 0);
+		XCloseDevice(display, dev);
+		XFlush(display);
+
+		ungrab(display, deviceID);
+		XFlush(display);
+
+		printf("PRESS!\n");
+		dev = XOpenDevice(display, deviceID);
+		XTestFakeDeviceButtonEvent(display, dev, 1, True, axes, 3, 0);
+		XCloseDevice(display, dev);
+*/
 		buttonDown = 1;
 		XTestFakeButtonEvent(display, 1, True, CurrentTime);
 		XFlush(display);
@@ -192,8 +219,15 @@ int isButtonDown() {
 /* Moves the pointer to the given position */
 void movePointer(int x, int y, int z) {
 	/* Move pointer to center between touch points */
+	/* TODO: Find some way to send XI events to also send pressure level */
+//	printf("%i %i %i\n", x, y, z);
+//	int axes[3] = {x, y, z};
+	
+//	XDevice * dev = XOpenDevice(display, 17);
+//	XTestFakeDeviceMotionEvent(display, dev, False, 0, axes, 2, 0);
+//	XCloseDevice(display, dev);
+
 	XTestFakeMotionEvent(display, -1, x, y, CurrentTime);
-	/* TODO: Use sendEvent and send XI events to also send pressure level */
 	XFlush(display);
 }
 
@@ -514,74 +548,77 @@ void handleXEvent() {
 	if (XGetEventData(display, &(ev.xcookie))) {
 		XGenericEventCookie *cookie = &(ev.xcookie);
 
-
-		if (cookie->evtype == XI_TouchBegin) {
-			if(debugMode) printf("Touch begin\n");
-		} else if (cookie->evtype == XI_TouchUpdate) {
-			if(debugMode) printf("Touch update\n");
-		} else if (cookie->evtype == XI_TouchEnd) {
-			if(debugMode) printf("Touch end\n");
-		} else if (cookie->evtype == XI_Motion) {
-		} else if (cookie->evtype == XI_PropertyEvent) {
+		// Touch events don't work right now
+		//if (cookie->evtype == XI_TouchBegin) {
+		//	if(debugMode) printf("Touch begin\n");
+		//} else if (cookie->evtype == XI_TouchUpdate) {
+		//	if(debugMode) printf("Touch update\n");
+		//} else if (cookie->evtype == XI_TouchEnd) {
+		//	if(debugMode) printf("Touch end\n");
+		//} else if (cookie->evtype == XI_Motion) {
+		//	if(debugMode) printf("Motion event\n");
+		//} else
+		if (cookie->evtype == XI_PropertyEvent) {
 			/* Device properties changed -> recalibrate. */
 			if(debugMode) printf("Device properties changed.\n");
 			readCalibrationData(0);
+		} else if(cookie->evtype == XI_ButtonPress) {
+			if(debugMode) printf("Button Press\n");
+			XIAllowEvents(display, deviceID, XIReplayDevice, CurrentTime);
 		}
 
-		if (cookie->evtype == XI_TouchBegin || cookie->evtype == XI_TouchUpdate || cookie->evtype == XI_TouchEnd) {
-			
-			// In an ideal world, the following would work. But unfortunately the touch events
-			// delivered by evdev are often crap on the eGalax screen, with missing events when there
-			// should be some. So we still have to read directly from the input device, as bad as that is.
 
-//			XIDeviceEvent * devEvt = (XIDeviceEvent*) cookie->data;
-//			printf("Detail: %i\n", devEvt->detail);
-//			printf("Mask[0]: %i\n", (int) devEvt->valuators.mask[0]);
-//
-//			/* Look for slot to put the data into by looking at the tracking ids */
-//			int index = -1;
-//			int i;
-//			for(i = 0; i < 2; i++) {
-//				if(fingerInfos[i].id == devEvt->detail) {
-//					index = i;
-//					break;
-//				}
-//			}
-//
-//			/* No slot for this id found, look for free one */
-//			if(index == -1) {
-//				for(i = 0; i < 2; i++) {
-//					if(!fingerInfos[i].slotUsed) {
-//						/* "Empty" slot, so we can add it. */
-//						index = i;
-//						fingerInfos[i].id = devEvt->detail;
-//						break;
-//					}
-//				}
-//			}
-//
-//			/* We have found a slot */
-//			if(index != -1) {
-//				fingerInfos[index].slotUsed = (cookie->evtype != XI_TouchEnd ? 1 : 0);
-//
-//				i = 0;
-//				if((devEvt->valuators.mask[0] & 1) == 1)
-//				{
-//					fingerInfos[index].rawX = (int) devEvt->valuators.values[i++];
-//				}
-//				if((devEvt->valuators.mask[0] & 2) == 2)
-//				{
-//					fingerInfos[index].rawY = (int) devEvt->valuators.values[i++];
-//				}
-//				if((devEvt->valuators.mask[0] & 4) == 4)
-//				{
-//					fingerInfos[index].rawZ = (int) devEvt->valuators.values[i++];
-//				}
-//			}
-//
-//			processFingers();
-
-		}
+		// In an ideal world, the following would work. But unfortunately the touch events
+		// delivered by evdev are often crap on the eGalax screen, with missing events when there
+		// should be some. So we still have to read directly from the input device, as bad as that is.
+		//if (cookie->evtype == XI_TouchBegin || cookie->evtype == XI_TouchUpdate || cookie->evtype == XI_TouchEnd) {
+		//	XIDeviceEvent * devEvt = (XIDeviceEvent*) cookie->data;
+		//	printf("Detail: %i\n", devEvt->detail);
+		//	printf("Mask[0]: %i\n", (int) devEvt->valuators.mask[0]);
+		//
+		//	/* Look for slot to put the data into by looking at the tracking ids */
+		//	int index = -1;
+		//	int i;
+		//	for(i = 0; i < 2; i++) {
+		//		if(fingerInfos[i].id == devEvt->detail) {
+		//			index = i;
+		//			break;
+		//		}
+		//	}
+		//
+		//	/* No slot for this id found, look for free one */
+		//	if(index == -1) {
+		//		for(i = 0; i < 2; i++) {
+		//			if(!fingerInfos[i].slotUsed) {
+		//				/* "Empty" slot, so we can add it. */
+		//				index = i;
+		//				fingerInfos[i].id = devEvt->detail;
+		//				break;
+		//			}
+		//		}
+		//	}
+		//
+		//	/* We have found a slot */
+		//	if(index != -1) {
+		//		fingerInfos[index].slotUsed = (cookie->evtype != XI_TouchEnd ? 1 : 0);
+		//
+		//		i = 0;
+		//		if((devEvt->valuators.mask[0] & 1) == 1)
+		//		{
+		//			fingerInfos[index].rawX = (int) devEvt->valuators.values[i++];
+		//		}
+		//		if((devEvt->valuators.mask[0] & 2) == 2)
+		//		{
+		//			fingerInfos[index].rawY = (int) devEvt->valuators.values[i++];
+		//		}
+		//		if((devEvt->valuators.mask[0] & 4) == 4)
+		//		{
+		//			fingerInfos[index].rawZ = (int) devEvt->valuators.values[i++];
+		//		}
+		//	}
+		//
+		//	processFingers();
+		//}
 
 
 		XFreeEventData(display, &(ev.xcookie));
@@ -912,9 +949,10 @@ int main(int argc, char **argv) {
 		device_mask2.mask_len = sizeof(mask_data2);
 		device_mask2.mask = mask_data2;
 		XISetMask(device_mask2.mask, XI_PropertyEvent);
-		XISetMask(device_mask2.mask, XI_TouchBegin);
-		XISetMask(device_mask2.mask, XI_TouchUpdate);
-		XISetMask(device_mask2.mask, XI_TouchEnd);
+		XISetMask(device_mask2.mask, XI_ButtonPress);
+		//XISetMask(device_mask2.mask, XI_TouchBegin);
+		//XISetMask(device_mask2.mask, XI_TouchUpdate);
+		//XISetMask(device_mask2.mask, XI_TouchEnd);
 		XISelectEvents(display, root, &device_mask2, 1);
 
 		/* Recieve events when screen size changes */
@@ -936,6 +974,7 @@ int main(int argc, char **argv) {
 
 		grab(display, deviceID);		
 
+
 		///* If it is not already running, create thread that listens to XInput events */
 		//if (threadReturn != 0)
 		//	threadReturn = pthread_create(&xLoopThread, NULL,
@@ -944,6 +983,10 @@ int main(int argc, char **argv) {
 		printf("Reading input from device ... (interrupt to exit)\n");
 
 		int currentSlot = 0;
+
+		/* If we use the legacy protocol, we collect all data of one finger into tempFingerInfo and set
+		   it to the correct slot once MT_SYNC occurs. */
+		FingerInfo tempFingerInfo = { .rawX=0, .rawY=0, .rawZ=0, .id = -1, .slotUsed = 0, .setThisTime = 0 };
 
 		while (1) {
 
@@ -967,11 +1010,68 @@ int main(int argc, char **argv) {
 				for (i = 0; i < rd / sizeof(struct input_event); i++) {
 
 					if (ev[i].type == EV_SYN) {
-
 						if (0 == ev[i].code) { // Ev_Sync event end
 							/* All finger data received, so process now. */
-							printf("Process fingers!\n");
+
+							if(useLegacyProtocol) {
+								/* Clear slots not set this time */
+								int i;
+								for(i = 0; i < 2; i++) {
+									if(fingerInfos[i].setThisTime) {
+										fingerInfos[i].setThisTime = 0;
+									} else {
+										/* Clear slot */
+										fingerInfos[i].slotUsed = 0;
+									}
+								}
+								tempFingerInfo.slotUsed = 0;
+							}
+
 							processFingers();
+
+						} else if (2 == ev[i].code) { // MT_Sync : Multitouch event end
+
+							if(!useLegacyProtocol) {
+
+								/* This messsage indicates we use legacy protocol, so switch */
+								useLegacyProtocol = 1;
+								currentSlot = -1;
+								if(debugMode) printf("Switch to legacy protocol.\n");
+							} else {
+								if(tempFingerInfo.slotUsed) {
+									/* Finger info for one finger collected in tempFingerInfo, so save it to fingerInfos. */
+
+									/* Look for slot to put the data into by looking at the tracking ids */
+									int index = -1;
+									int i;
+									for(i = 0; i < 2; i++) {
+										if(fingerInfos[i].slotUsed && fingerInfos[i].id == tempFingerInfo.id) {
+											index = i;
+											break;
+										}
+									}
+							
+									if(index == -1) {
+										for(i = 0; i < 2; i++) {
+											if(!fingerInfos[i].slotUsed) {
+												/* "Empty" slot, so we can add it. */
+												index = i;
+												fingerInfos[i].id = tempFingerInfo.id;
+												fingerInfos[i].slotUsed = 1;
+												break;
+											}
+										}
+									}
+
+									if(index != -1) {
+										/* Copy temporary data to slot */
+										fingerInfos[index].setThisTime = 1;
+										fingerInfos[index].rawX = tempFingerInfo.rawX;
+										fingerInfos[index].rawY = tempFingerInfo.rawY;
+										fingerInfos[index].rawZ = tempFingerInfo.rawZ;
+									}
+								}
+							}
 						}
 
 					} else if (ev[i].type == EV_MSC && (ev[i].code == MSC_RAW
@@ -993,21 +1093,30 @@ int main(int argc, char **argv) {
 									fingerInfos[currentSlot].id = ev[i].value;
 									fingerInfos[currentSlot].slotUsed = 1;
 								}
+							} else if(useLegacyProtocol) {
+								tempFingerInfo.id = ev[i].value;
+								tempFingerInfo.slotUsed = 1;
 							}
 						};
 						if (ev[i].code == 53) {
 							if(currentSlot != -1) {
 								fingerInfos[currentSlot].rawX = ev[i].value;
+							} else if(useLegacyProtocol) {
+								tempFingerInfo.rawX = ev[i].value;
 							}
 						};
 						if (ev[i].code == 54) {
 							if(currentSlot != -1) {
 								fingerInfos[currentSlot].rawY = ev[i].value;
+							} else if(useLegacyProtocol) {
+								tempFingerInfo.rawY = ev[i].value;
 							}
 						};
 						if (ev[i].code == 58) {
 							if(currentSlot != -1) {
 								fingerInfos[currentSlot].rawZ = ev[i].value;
+							} else if(useLegacyProtocol) {
+								tempFingerInfo.rawZ = ev[i].value;
 							}
 						};
 					}
@@ -1024,8 +1133,8 @@ int main(int argc, char **argv) {
 		close(fileDesc);
 
 		/* Clean up */
-		ungrab(display, deviceID);
 		releaseButton();
+		ungrab(display, deviceID);
 
 		/* Wait until device file is there again */
 		while ((fileDesc = open(devname, O_RDONLY)) < 0) {

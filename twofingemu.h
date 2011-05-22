@@ -30,6 +30,7 @@ struct FingerInfo {
 	int rawY;
 	int rawZ;
 	int slotUsed;
+	int setThisTime; /* For legacy protocol */
 	int id; /* Tracking ID */
 };
 
@@ -66,6 +67,7 @@ struct Profile {
 	Action zoomOutAction;
 	double zoomStep;
 	int zoomMinDistance;
+	double zoomMinFactor;
 
 	int rotateInherit;
 	Action rotateLeftAction;

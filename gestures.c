@@ -116,6 +116,9 @@ int checkGesture(FingerInfo* fingerInfos, int fingersDown) {
 		maxDist = moveDist;
 	}
 
+	/* Prevent division by zero */
+	if(gestureStartDist < 1) gestureStartDist = 0;
+
 	/* We don't know yet what to do, so look if we can decide now (only do this if there
 	   are still two fingers down, otherwise we are in continuation and can't decide). */
 	if (amPerformingGesture == GESTURE_UNDECIDED && fingersDown == 2) {
@@ -149,9 +152,12 @@ int checkGesture(FingerInfo* fingerInfos, int fingersDown) {
 		}
 
 		int zoomMinDist = currentProfile->zoomMinDistance;
-		if (currentProfile->zoomInherit)
+		double zoomMinFactor = currentProfile->zoomMinFactor;
+		if (currentProfile->zoomInherit) {
 			zoomMinDist = defaultProfile.zoomMinDistance;
-		if (abs((int) currentDist - gestureStartDist) > zoomMinDist) {
+			zoomMinFactor = defaultProfile.zoomMinFactor;
+		}
+		if (abs((int) currentDist - gestureStartDist) > zoomMinDist && (currentDist / gestureStartDist > zoomMinFactor || currentDist / gestureStartDist < 1/zoomMinFactor)) {
 			amPerformingGesture = GESTURE_ZOOM;
 			if(inDebugMode()) printf("Start zoom gesture\n");
 			return 1;
