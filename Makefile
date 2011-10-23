@@ -13,7 +13,7 @@ twofing: $(OBJECTS)
 
 install:
 	install --mode=755 $(NAME) $(BINDIR)/
-	cp 70-touchscreen-egalax.rules /etc/udev/rules.d/
+	cp 70-touchscreen-egalax.rules $(DESTDIR)/etc/udev/rules.d/
 
 clean:
 	rm *.o $(NAME)
