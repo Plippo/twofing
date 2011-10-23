@@ -544,7 +544,7 @@ void setScreenSize(XRRScreenChangeNotifyEvent * evt) {
 void handleXEvent() {
 	XEvent ev;
 	XNextEvent(display, &ev);
-	if(debugMode) printf("Handle event\n");
+	//if(debugMode) printf("Handle event\n");
 	if (XGetEventData(display, &(ev.xcookie))) {
 		XGenericEventCookie *cookie = &(ev.xcookie);
 
@@ -555,16 +555,18 @@ void handleXEvent() {
 		//	if(debugMode) printf("Touch update\n");
 		//} else if (cookie->evtype == XI_TouchEnd) {
 		//	if(debugMode) printf("Touch end\n");
-		//} else if (cookie->evtype == XI_Motion) {
-		//	if(debugMode) printf("Motion event\n");
-		//} else
-		if (cookie->evtype == XI_PropertyEvent) {
+		if (cookie->evtype == XI_Motion) {
+			if(debugMode) printf("Motion event\n");
+			//int r = XIAllowEvents(display, deviceID, XIReplayDevice, CurrentTime);
+			//printf("XIAllowEvents result: %i\n", r);
+		} else if (cookie->evtype == XI_PropertyEvent) {
 			/* Device properties changed -> recalibrate. */
 			if(debugMode) printf("Device properties changed.\n");
 			readCalibrationData(0);
 		} else if(cookie->evtype == XI_ButtonPress) {
 			if(debugMode) printf("Button Press\n");
-			XIAllowEvents(display, deviceID, XIReplayDevice, CurrentTime);
+			//int r = XIAllowEvents(display, deviceID, XIReplayDevice, CurrentTime);
+			//printf("XIAllowEvents result: %i\n", r);
 		}
 
 
@@ -1036,6 +1038,7 @@ int main(int argc, char **argv) {
 								/* This messsage indicates we use legacy protocol, so switch */
 								useLegacyProtocol = 1;
 								currentSlot = -1;
+								tempFingerInfo.slotUsed = 0;
 								if(debugMode) printf("Switch to legacy protocol.\n");
 							} else {
 								if(tempFingerInfo.slotUsed) {
