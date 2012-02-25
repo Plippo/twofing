@@ -84,6 +84,7 @@ static void daemonize(void) {
 	r = freopen("/dev/null", "r", stdin);
 	r = freopen("/dev/null", "w", stdout);
 	r = freopen("/dev/null", "w", stderr);
+	r = r;
 }
 
 /* Finger information */
@@ -676,10 +677,14 @@ void readCalibrationData(int exitOnFail) {
 				if(deviceInfo->classes[c]->type == XIValuatorClass) {
 					XIValuatorClassInfo* valuatorInfo = (XIValuatorClassInfo *) deviceInfo->classes[c];
 					if(valuatorInfo->mode == XIModeAbsolute) {
-						if(valuatorInfo->label == XInternAtom(display, "Abs X", 0)) {
+						if(valuatorInfo->label == XInternAtom(display, "Abs X", 0)
+						|| valuatorInfo->label == XInternAtom(display, "Abs MT Position X", 0)) 
+						{
 							calibMinX = valuatorInfo->min;
 							calibMaxX = valuatorInfo->max;
-						} else if(valuatorInfo->label == XInternAtom(display, "Abs Y", 0)) {
+						}
+						else if(valuatorInfo->label == XInternAtom(display, "Abs Y", 0) 							|| valuatorInfo->label == XInternAtom(display, "Abs MT Position Y", 0))
+						{
 							calibMinY = valuatorInfo->min;
 							calibMaxY = valuatorInfo->max;
 						}
@@ -769,6 +774,11 @@ void readCalibrationData(int exitOnFail) {
 	calibSwapAxes = data2[0];
 
 	XFree(data2);
+
+	if(debugMode)
+	{
+		printf("Calibration: MinX: %i; MaxX: %i; MinY: %i; MaxY: %i\n", calibMinX, calibMaxX, calibMinY, calibMaxY);
+	}
 
 }
 
