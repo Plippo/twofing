@@ -1,2 +1,2 @@
-SUBSYSTEMS=="usb",ACTION=="add",KERNEL=="*",ATTRS{idProduct}=="480d",SYMLINK+="twofingtouch",RUN+="/bin/chmod a+r /dev/twofingtouch"
+SUBSYSTEMS=="usb",ACTION=="add",KERNEL=="event*",ATTRS{idProduct}=="480d",SYMLINK+="twofingtouch",RUN+="/bin/chmod a+r /dev/twofingtouch"
 
