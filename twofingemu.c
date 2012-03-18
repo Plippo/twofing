@@ -128,17 +128,17 @@ void grab(Display* display, int grabDeviceID) {
 	unsigned char mask_data[8] = { 0,0,0,0,0,0,0,0 };
 	device_mask.mask_len = sizeof(mask_data);
 	device_mask.mask = mask_data;
-	//XISetMask(device_mask.mask, XI_TouchBegin);
-	//XISetMask(device_mask.mask, XI_TouchUpdate);
-	//XISetMask(device_mask.mask, XI_TouchEnd);
 	XISetMask(device_mask.mask, XI_Motion);
 	XISetMask(device_mask.mask, XI_ButtonPress);
 
+/* Experiments with X MT support, not working yet */
+//	XISetMask(device_mask.mask, XI_TouchBegin);
+//	XISetMask(device_mask.mask, XI_TouchUpdate);
+//	XISetMask(device_mask.mask, XI_TouchEnd);
 //	XIGrabModifiers modifiers;
 //	modifiers.modifiers = XIAnyModifier;
 //	int r = XIGrabButton(display, grabDeviceID, XIAnyButton, root, None, GrabModeSync,
 //			GrabModeAsync, True, &device_mask, 1, &modifiers);
-
 //	int r = XIGrabTouchBegin(display, grabDeviceID, root, None, &device_mask, 0, modifiers);
 
 	int r = XIGrabDevice(display, grabDeviceID, root, CurrentTime, None, GrabModeAsync, GrabModeAsync, False, &device_mask);
@@ -149,6 +149,7 @@ void grab(Display* display, int grabDeviceID) {
 
 /* Ungrab the device so input can be handled by application directly */
 void ungrab(Display* display, int grabDeviceID) {
+/* Experiments with X MT support, not working yet */
 //	XIGrabModifiers modifiers[1] = { { 0, 0 } };
 //	XIUngrabButton(display, grabDeviceID, 1, root, 1, modifiers);
 	XIUngrabDevice(display, grabDeviceID, CurrentTime);
@@ -177,9 +178,10 @@ void releaseButton() {
 	if (buttonDown) {
 		buttonDown = 0;
 		XTestFakeButtonEvent(display, 1, False, CurrentTime);
-		
-		/*printf("RELEASE!\n");
-		XDevice * dev = XOpenDevice(display, deviceID);
+		XFlush(display);
+
+/* Experiments with Pressure Sensitivity, not working yet */
+/*		XDevice * dev = XOpenDevice(display, deviceID);
 		int axes[3] = {fingerInfos[0].rawX, fingerInfos[0].rawY, fingerInfos[0].rawZ};
 		XTestFakeDeviceButtonEvent(display, dev, 1, False, axes, 3, 0);
 		XCloseDevice(display, dev);
@@ -192,6 +194,7 @@ void releaseButton() {
 void pressButton() {
 	if(!buttonDown) {
 
+/* Experiments with Pressure Sensitivity, not working yet */
 /*		XDevice * dev = XOpenDevice(display, deviceID);
 		int axes[3] = {fingerInfos[0].rawX, fingerInfos[0].rawY, fingerInfos[0].rawZ};
 		XTestFakeDeviceButtonEvent(display, dev, 1, False, axes, 3, 0);
@@ -220,13 +223,12 @@ int isButtonDown() {
 /* Moves the pointer to the given position */
 void movePointer(int x, int y, int z) {
 	/* Move pointer to center between touch points */
-	/* TODO: Find some way to send XI events to also send pressure level */
-//	printf("%i %i %i\n", x, y, z);
-//	int axes[3] = {x, y, z};
-	
-//	XDevice * dev = XOpenDevice(display, 17);
-//	XTestFakeDeviceMotionEvent(display, dev, False, 0, axes, 2, 0);
-//	XCloseDevice(display, dev);
+
+	/* Experiments with XI events, not working yet */
+	//	int axes[3] = {x, y, z};
+	//	XDevice * dev = XOpenDevice(display, 17);
+	//	XTestFakeDeviceMotionEvent(display, dev, False, 0, axes, 2, 0);
+	//	XCloseDevice(display, dev);
 
 	XTestFakeMotionEvent(display, -1, x, y, CurrentTime);
 	XFlush(display);
@@ -341,7 +343,6 @@ Window getLastChildWindow(Window w) {
 
 		if (childWindows != NULL) {
 			if(childCount > 0) {
-				//printf("%i children.\n", childCount);
 				Window child = childWindows[childCount - 1];
 				XFree(childWindows);
 				return child;
@@ -373,7 +374,6 @@ Window getActiveWindow() {
 /* Returns the active top-level window. A top-level window is one that has WM_CLASS set.
  * May also return None. */
 Window getCurrentWindow() {
-	//if(debugMode) printf("Called getCurrentWindow\n");
 
 	/* First get the window that has the input focus */
 	Window currentWindow;
@@ -823,8 +823,6 @@ int main(int argc, char **argv) {
 		sleep(10);
 	}
 
-	/* We have two threads accessing X */
-	//XInitThreads();
 
 	/* Connect to X server */
 	if ((display = XOpenDisplay(NULL)) == NULL) {
@@ -851,9 +849,6 @@ int main(int argc, char **argv) {
 	if (devname == 0) {
 		devname = "/dev/twofingtouch";
 	}
-
-	///* Save return value of pthread_create so we only call it later if it hasn't been successfully called before. */
-	//int threadReturn = 1;
 
 	/* Try to read from device file */
 	int fileDesc;
@@ -986,14 +981,9 @@ int main(int argc, char **argv) {
 
 		grab(display, deviceID);		
 
-
-		///* If it is not already running, create thread that listens to XInput events */
-		//if (threadReturn != 0)
-		//	threadReturn = pthread_create(&xLoopThread, NULL,
-		//			xLoopThreadFunction, NULL);
-
 		printf("Reading input from device ... (interrupt to exit)\n");
 
+		/* We perform raw event reading here as X touch events don't seem too reliable */
 		int currentSlot = 0;
 
 		/* If we use the legacy protocol, we collect all data of one finger into tempFingerInfo and set
