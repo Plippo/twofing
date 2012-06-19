@@ -12,11 +12,13 @@ twofing: $(OBJECTS)
 	$(CC) -c $(CFLAGS) $<
 
 install:
+	mkdir -p $(BINDIR)
+	mkdir -p $(DESTDIR)/etc/udev/rules.d/
 	install --mode=755 $(NAME) $(BINDIR)/
 	cp 70-touchscreen-egalax.rules $(DESTDIR)/etc/udev/rules.d/
 
 clean:
-	rm *.o $(NAME)
+	rm -f *.o $(NAME)
 
 uninstall:
 	rm $(BINDIR)/$(NAME)
