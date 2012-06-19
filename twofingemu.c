@@ -29,6 +29,7 @@
 #include "twofingemu.h"
 #include "gestures.h"
 #include "easing.h"
+#include "devices.h"
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/select.h>
@@ -96,6 +97,7 @@ Display* display;
 Window root;
 int screenNum;
 int deviceID;
+int calibrateDeviceID;
 Atom WM_CLASS;
 pthread_t xLoopThread;
 
@@ -643,7 +645,7 @@ void readCalibrationData(int exitOnFail) {
 	int retFormat;
 	unsigned long retItems, retBytesAfter;
 	unsigned int* data;
-	if(XIGetProperty(display, deviceID, XInternAtom(display,
+	if(XIGetProperty(display, calibrateDeviceID, XInternAtom(display,
 			"Evdev Axis Calibration", 0), 0, 4 * 32, False, XA_INTEGER,
 			&retType, &retFormat, &retItems, &retBytesAfter,
 			(unsigned char**) &data) != Success) {
@@ -654,7 +656,7 @@ void readCalibrationData(int exitOnFail) {
 		/* evdev might not be ready yet after resume. Let's wait a second and try again. */
 		sleep(1);
 
-		if(XIGetProperty(display, deviceID, XInternAtom(display,
+		if(XIGetProperty(display, calibrateDeviceID, XInternAtom(display,
 				"Evdev Axis Calibration", 0), 0, 4 * 32, False, XA_INTEGER,
 				&retType, &retFormat, &retItems, &retBytesAfter,
 				(unsigned char**) &data) != Success) {
@@ -670,7 +672,7 @@ void readCalibrationData(int exitOnFail) {
 			/* Get minimum/maximum of axes */
 
 			int nDev;
-			XIDeviceInfo * deviceInfo = XIQueryDevice(display, deviceID, &nDev);
+			XIDeviceInfo * deviceInfo = XIQueryDevice(display, calibrateDeviceID, &nDev);
 
 			int c;
 			for(c = 0; c < deviceInfo->num_classes; c++) {
@@ -712,7 +714,7 @@ void readCalibrationData(int exitOnFail) {
 	}
 
 	float * data4 = NULL;
-	if(XIGetProperty(display, deviceID, XInternAtom(display,
+	if(XIGetProperty(display, calibrateDeviceID, XInternAtom(display,
 			"Coordinate Transformation Matrix", 0), 0, 9 * 32, False, XInternAtom(display,
 			"FLOAT", 0),
 			&retType, &retFormat, &retItems, &retBytesAfter,
@@ -736,7 +738,7 @@ void readCalibrationData(int exitOnFail) {
 
 	unsigned char* data2;
 
-	if(XIGetProperty(display, deviceID, XInternAtom(display,
+	if(XIGetProperty(display, calibrateDeviceID, XInternAtom(display,
 			"Evdev Axis Inversion", 0), 0, 2 * 8, False, XA_INTEGER, &retType,
 			&retFormat, &retItems, &retBytesAfter, (unsigned char**) &data2) != Success) {
 		return;
@@ -756,7 +758,7 @@ void readCalibrationData(int exitOnFail) {
 
 	XFree(data2);
 
-	if(XIGetProperty(display, deviceID,
+	if(XIGetProperty(display, calibrateDeviceID,
 			XInternAtom(display, "Evdev Axes Swap", 0), 0, 8, False,
 			XA_INTEGER, &retType, &retFormat, &retItems, &retBytesAfter,
 			(unsigned char**) &data2) != Success) {
@@ -853,7 +855,7 @@ int main(int argc, char **argv) {
 	/* Try to read from device file */
 	int fileDesc;
 	if ((fileDesc = open(devname, O_RDONLY)) < 0) {
-		perror("twofing");
+		perror("/dev/twofingtouch");
 		return 1;
 	}
 
@@ -872,6 +874,19 @@ int main(int argc, char **argv) {
 		/* Read device name */
 		ioctl(fileDesc, EVIOCGNAME(sizeof(name)), name);
 		printf("Input device name: \"%s\"\n", name);
+
+		/* Look if a mapping is available and, if yes, map calibration device name */
+		char calibrateName[256];
+		strcpy(calibrateName, name);
+		for(i = 0; mapDeviceNameForCalibration[i].origDeviceName != NULL; i++)
+		{
+			if(strcmp(name, mapDeviceNameForCalibration[i].origDeviceName) == 0)
+			{
+				strcpy(calibrateName, mapDeviceNameForCalibration[i].mappedDeviceName);
+				printf("For calibration: \"%s\"\n", calibrateName);
+				break;
+			}
+		}
 
 		//TODO activate again?
 		//XSetErrorHandler(invalidWindowHandler);
@@ -924,6 +939,8 @@ int main(int argc, char **argv) {
 		}
 
 		/* Go through input devices and look for that with the same name as the given device */
+		deviceID = -1;
+		calibrateDeviceID = -1;
 		int devindex;
 		for (devindex = 0; devindex < n; devindex++) {
 			if (info[devindex].use == XIMasterPointer || info[devindex].use
@@ -932,19 +949,25 @@ int main(int argc, char **argv) {
 
 			if (strcmp(info[devindex].name, name) == 0) {
 				deviceID = info[devindex].deviceid;
-
-				break;
 			}
+			if(strcmp(info[devindex].name, calibrateName) == 0) {
+                                calibrateDeviceID = info[devindex].deviceid;
+                        }
 
 		}
 		if (deviceID == -1) {
 			printf("Input device not found in XInput device list.\n");
 			exit(1);
 		}
+		if(calibrateDeviceID == -1) {
+			printf("Using default device for calibration\n");
+			calibrateDeviceID = deviceID;
+		}
 
 		XIFreeDeviceInfo(info);
 
 		if(debugMode) printf("XInput device id is %i.\n", deviceID);
+		if(debugMode) printf("XInput device id for calibration is %i.\n", calibrateDeviceID);
 
 		/* Prepare by reading calibration */
 		readCalibrationData(1);
