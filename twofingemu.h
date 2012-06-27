@@ -1,5 +1,5 @@
 /*
- Copyright (C) 2010, 2011 Philipp Merkel <linux@philmerk.de>
+ Copyright (C) 2010, 2011, 2012 Philipp Merkel <linux@philmerk.de>
 
  Permission to use, copy, modify, and/or distribute this software for any
  purpose with or without fee is hereby granted, provided that the above
@@ -18,6 +18,8 @@
 #define TWOFINGEMU_H_
 
 #define MAX(a, b) (a > b ? a : b) 
+
+#define VERSION "0.1.1.20120727"
 
 typedef struct FingerInfo FingerInfo;
 typedef struct Action Action;

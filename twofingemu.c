@@ -780,6 +780,13 @@ void readCalibrationData(int exitOnFail) {
 	if(debugMode)
 	{
 		printf("Calibration: MinX: %i; MaxX: %i; MinY: %i; MaxY: %i\n", calibMinX, calibMaxX, calibMinY, calibMaxY);
+		printf("Invert X Axis: %s\n", calibSwapX ? "Yes" : "No");
+		printf("Invert Y Axis: %s\n", calibSwapY ? "Yes" : "No");
+		printf("Swap Axes: %s\n", calibSwapAxes ? "Yes" : "No");
+		if(calibMatrixUse)
+		{
+			printf("Calibration Matrix: \t%f\t%f\t%f\n                    \t%f\t%f\t%f\n", calibMatrix[0], calibMatrix[1], calibMatrix[2], calibMatrix[3], calibMatrix[4], calibMatrix[5]);
+		}
 	}
 
 }
@@ -792,12 +799,15 @@ int main(int argc, char **argv) {
 	int doDaemonize = 1;
 	int doWait = 0;
 	int clickMode = 2;
+	int justVersion = 0;
 
 	int i;
 	for (i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "--debug") == 0) {
 			doDaemonize = 0;
 			debugMode = 1;
+		} else if (strcmp(argv[i], "--version") == 0) {
+			justVersion = 1;
 		} else if (strcmp(argv[i], "--wait") == 0) {
 			doWait = 1;
 		} else if (strcmp(argv[i], "--click=first") == 0) {
@@ -810,6 +820,16 @@ int main(int argc, char **argv) {
 			devname = argv[i];
 		}
 
+	}
+
+	if(debugMode || justVersion)
+	{
+		printf("twofing, the two-fingered daemon\nVersion %s\n\n", VERSION);
+	}
+
+	if(justVersion)
+	{ 
+		return 0;
 	}
 
 	initGestures(clickMode);
