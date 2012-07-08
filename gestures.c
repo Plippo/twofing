@@ -336,7 +336,7 @@ int checkGesture(FingerInfo* fingerInfos, int fingersDown) {
 
 }
 
-void processFingerGesture(FingerInfo* fingerInfos, int fingersDown, int fingersWereDown) {
+void processFingerGesture(FingerInfo* fingerInfos, int fingersDown, int fingersWereDown, int blockSingleTouches) {
 
 	if(fingersDown != 0 && fingersWereDown == 0) {
 		stopEasing();
@@ -486,23 +486,8 @@ void processFingerGesture(FingerInfo* fingerInfos, int fingersDown, int fingersW
 	} else if (fingersDown == 1 && fingersWereDown == 0) {
 		/* First finger touched */
 		fingerDownTime = currentTime;
-		/* Fake single-touch move event */
-		int i;
-		for(i = 0; i <= 1; i++) {
-			if(fingerInfos[i].slotUsed) {
-				movePointer(fingerInfos[i].x, fingerInfos[i].y, fingerInfos[i].rawZ);
-			}
-		}
 
-	} else if (fingersDown == 1) {
-		/* Moved with one finger */
-		if (hadTwoFingersOn == 0 && !isButtonDown()) {
-			if (timeDiff(fingerDownTime, currentTime) > CLICK_DELAY) {
-				/* Delay has passed, no gesture been performed, so perform single-touch press now */
-				pressButton();
-			}
-		}
-		if(isButtonDown()) {
+		if(!blockSingleTouches) {
 			/* Fake single-touch move event */
 			int i;
 			for(i = 0; i <= 1; i++) {
@@ -510,22 +495,46 @@ void processFingerGesture(FingerInfo* fingerInfos, int fingersDown, int fingersW
 					movePointer(fingerInfos[i].x, fingerInfos[i].y, fingerInfos[i].rawZ);
 				}
 			}
+		}
+	} else if (fingersDown == 1) {
+		/* Moved with one finger */
+		if(!blockSingleTouches) {
+			if (hadTwoFingersOn == 0 && !isButtonDown()) {
+				if (timeDiff(fingerDownTime, currentTime) > CLICK_DELAY) {
+					/* Delay has passed, no gesture been performed, so perform single-touch press now */
+					pressButton();
+				}
+			}
+			if(isButtonDown()) {
+				/* Fake single-touch move event */
+				int i;
+				for(i = 0; i <= 1; i++) {
+					if(fingerInfos[i].slotUsed) {
+						movePointer(fingerInfos[i].x, fingerInfos[i].y, fingerInfos[i].rawZ);
+					}
+				}
 
+			}
 		}
 	} else if (fingersDown == 0 && fingersWereDown > 0) {
-		printf("Last finger released!\n");
 		/* Last finger released */
-		if (hadTwoFingersOn == 0 && !isButtonDown()) {
-			/* The button press time has not been reached yet, and we never had two
-			 * fingers on (we could not have done this in this short time) so
-			 * we simulate button down and up now. */
-			pressButton();
-			releaseButton();
-			printf("Handle release 1\n");
-		} else {
-			/* We release the button if it is down. */
-			releaseButton();
-			printf("Handle release 2\n");
+		if(!blockSingleTouches) {
+			if (hadTwoFingersOn == 0 && !isButtonDown()) {
+				/* The button press time has not been reached yet, and we never had two
+				 * fingers on (we could not have done this in this short time) so
+				 * we simulate button down and up now. */
+				pressButton();
+				releaseButton();
+			} else {
+				/* We release the button if it is down. */
+				releaseButton();
+			}
+		}
+		else
+		{
+			if(isButtonDown()) {
+				releaseButton();
+			}
 		}
 	}
 	if (fingersDown == 0) {

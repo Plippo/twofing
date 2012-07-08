@@ -44,7 +44,6 @@ int inDebugMode() {
 	return debugMode;
 }
 
-
 /* Daemonize. Source: http://www-theorie.physik.unizh.ch/~dpotter/howto/daemonize (public domain) */
 static void daemonize(void) {
 	pid_t pid, sid;
@@ -100,6 +99,10 @@ int deviceID;
 int calibrateDeviceID;
 Atom WM_CLASS;
 pthread_t xLoopThread;
+int randrEvBase;
+int randrErrBase;
+int xinputEvBase;
+int xinputErrBase;
 
 /* Calibration data */
 int calibMinX, calibMaxX, calibMinY, calibMaxY;
@@ -118,6 +121,12 @@ int buttonDown = 0;
 
 /* Does the device use the legacy MT protocol? */
 int useLegacyProtocol = 0;
+
+/* Blocking Device */
+int blockingDeviceID = -1;
+int blockingIntervalMilliseconds = BLOCKING_INTERVAL_MS_DEFAULT;
+TimeVal lastBlockingInputTime = { 0, 0};
+int currentTouchBlocked = 0;
 
 /* Handle errors by, well, throwing them away. */
 int invalidWindowHandler(Display *dsp, XErrorEvent *err) {
@@ -489,7 +498,19 @@ void processFingers() {
 		}
 	}
 
-	processFingerGesture(fingerInfos, fingersDown, fingersWereDown);
+	if(fingersWereDown == 0 && 
+	   fingersDown > 0 && 
+	   blockingDeviceID != -1 && 
+	   timeDiff(lastBlockingInputTime, getCurrentTime()) < blockingIntervalMilliseconds) {
+		currentTouchBlocked = 1;
+		if(debugMode) printf("Touch blocked.\n");
+	}
+
+	processFingerGesture(fingerInfos, fingersDown, fingersWereDown, currentTouchBlocked);
+
+	if(fingersDown == 0) {
+		currentTouchBlocked = 0;
+	}
 
 	/* Save number of fingers to compare next time */
 	fingersWereDown = fingersDown;
@@ -551,27 +572,30 @@ void handleXEvent() {
 	if (XGetEventData(display, &(ev.xcookie))) {
 		XGenericEventCookie *cookie = &(ev.xcookie);
 
-		// Touch events don't work right now
-		//if (cookie->evtype == XI_TouchBegin) {
-		//	if(debugMode) printf("Touch begin\n");
-		//} else if (cookie->evtype == XI_TouchUpdate) {
-		//	if(debugMode) printf("Touch update\n");
-		//} else if (cookie->evtype == XI_TouchEnd) {
-		//	if(debugMode) printf("Touch end\n");
-		if (cookie->evtype == XI_Motion) {
-			if(debugMode) printf("Motion event\n");
-			//int r = XIAllowEvents(display, deviceID, XIReplayDevice, CurrentTime);
-			//printf("XIAllowEvents result: %i\n", r);
-		} else if (cookie->evtype == XI_PropertyEvent) {
+		if (cookie->evtype == XI_Motion || cookie->evtype == XI_ButtonPress) {
+			XIDeviceEvent * devEvt = (XIDeviceEvent*) cookie->data;
+			if(blockingDeviceID != -1 && devEvt->deviceid == blockingDeviceID) {
+				// Blocking event received
+				if(debugMode) printf("Blocking for next %i milliseconds.\n", blockingIntervalMilliseconds);
+				lastBlockingInputTime = getCurrentTime();
+			}
+		}
+
+		if (cookie->evtype == XI_PropertyEvent) {
 			/* Device properties changed -> recalibrate. */
 			if(debugMode) printf("Device properties changed.\n");
 			readCalibrationData(0);
-		} else if(cookie->evtype == XI_ButtonPress) {
-			if(debugMode) printf("Button Press\n");
-			//int r = XIAllowEvents(display, deviceID, XIReplayDevice, CurrentTime);
-			//printf("XIAllowEvents result: %i\n", r);
 		}
 
+		/*if (cookie->evtype == XI_Motion) {
+			//if(debugMode) printf("Motion event\n");
+			//int r = XIAllowEvents(display, deviceID, XIReplayDevice, CurrentTime);
+			//printf("XIAllowEvents result: %i\n", r);
+		} else if(cookie->evtype == XI_ButtonPress) {
+			//if(debugMode) printf("Button Press\n");
+			//int r = XIAllowEvents(display, deviceID, XIReplayDevice, CurrentTime);
+			//printf("XIAllowEvents result: %i\n", r);
+		}*/
 
 		// In an ideal world, the following would work. But unfortunately the touch events
 		// delivered by evdev are often crap on the eGalax screen, with missing events when there
@@ -629,8 +653,7 @@ void handleXEvent() {
 		XFreeEventData(display, &(ev.xcookie));
 
 	} else {
-		if(ev.type == 101) {
-			/* Why isn't this magic constant explained anywhere?? */
+		if(ev.type == randrEvBase + RRScreenChangeNotify) {
 			setScreenSize((XRRScreenChangeNotifyEvent *) &ev);
 		}
 	}
@@ -801,6 +824,8 @@ int main(int argc, char **argv) {
 	int clickMode = 2;
 	int justVersion = 0;
 
+	char* blockingDevName = 0;
+
 	int i;
 	for (i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "--debug") == 0) {
@@ -816,6 +841,14 @@ int main(int argc, char **argv) {
 			clickMode = 1;
 		} else if (strcmp(argv[i], "--click=center") == 0) {
 			clickMode = 2;
+		} else if (strcmp(argv[i], "--blockingdevice") == 0) {
+			if(i + 1 < argc) {
+				blockingDevName = argv[++i];
+			}
+		} else if (strcmp(argv[i], "--blockinginterval") == 0) {
+			if(i + 1 < argc) {
+				blockingIntervalMilliseconds = atoi(argv[++i]);
+			}
 		} else {
 			devname = argv[i];
 		}
@@ -848,7 +881,7 @@ int main(int argc, char **argv) {
 
 	/* Connect to X server */
 	if ((display = XOpenDisplay(NULL)) == NULL) {
-		fprintf(stderr, "Couldn't connect to X server\n");
+		fprintf(stderr, "ERROR: Couldn't connect to X server\n");
 		exit(1);
 	}
 
@@ -912,10 +945,10 @@ int main(int argc, char **argv) {
 		//XSetErrorHandler(invalidWindowHandler);
 
 
-		int opcode, event, error;
-		if (!XQueryExtension(display, "RANDR", &opcode, &event,
-				&error)) {
-			printf("X RANDR extension not available.\n");
+		int opcode;
+		if (!XQueryExtension(display, "RANDR", &opcode, &randrEvBase,
+				&randrErrBase)) {
+			fprintf(stderr, "ERROR: X RANDR extension not available.\n");
 			XCloseDisplay(display);
 			exit(1);
 		}
@@ -923,19 +956,19 @@ int main(int argc, char **argv) {
 		/* Which version of XRandR? We support 1.3 */
 		int major = 1, minor = 3;
 		if (!XRRQueryVersion(display, &major, &minor)) {
-			printf("XRandR version not available.\n");
+			fprintf(stderr, "ERROR: XRandR version not available.\n");
 			XCloseDisplay(display);
 			exit(1);
 		} else if(!(major>1 || (major == 1 && minor >= 3))) {
-			printf("XRandR 1.3 not available. Server supports %d.%d\n", major, minor);
+			fprintf(stderr, "ERROR: XRandR 1.3 not available. Server supports %d.%d\n", major, minor);
 			XCloseDisplay(display);
 			exit(1);
 		}
 
 		/* XInput Extension available? */
-		if (!XQueryExtension(display, "XInputExtension", &opcode, &event,
-				&error)) {
-			printf("X Input extension not available.\n");
+		if (!XQueryExtension(display, "XInputExtension", &opcode, &xinputEvBase,
+				&xinputErrBase)) {
+			fprintf(stderr, "ERROR: X Input extension not available.\n");
 			XCloseDisplay(display);
 			exit(1);
 		}
@@ -943,7 +976,7 @@ int main(int argc, char **argv) {
 		/* Which version of XI2? We support 2.1 */
 		major = 2; minor = 1;
 		if (XIQueryVersion(display, &major, &minor) == BadRequest) {
-			printf("XI 2.1 not available. Server supports %d.%d\n", major, minor);
+			fprintf(stderr, "ERROR: XI 2.1 not available. Server supports %d.%d\n", major, minor);
 			XCloseDisplay(display);
 			exit(1);
 		}
@@ -954,34 +987,44 @@ int main(int argc, char **argv) {
 		int n;
 		XIDeviceInfo *info = XIQueryDevice(display, XIAllDevices, &n);
 		if (!info) {
-			printf("No XInput devices available\n");
+			fprintf(stderr, "ERROR: No XInput devices available\n");
 			exit(1);
 		}
 
 		/* Go through input devices and look for that with the same name as the given device */
 		deviceID = -1;
 		calibrateDeviceID = -1;
+		blockingDeviceID = -1;
 		int devindex;
-		for (devindex = 0; devindex < n; devindex++) {
-			if (info[devindex].use == XIMasterPointer || info[devindex].use
+		for(devindex = 0; devindex < n; devindex++) {
+			if(info[devindex].use == XIMasterPointer || info[devindex].use
 					== XIMasterKeyboard)
 				continue;
 
-			if (strcmp(info[devindex].name, name) == 0) {
+			if(strcmp(info[devindex].name, name) == 0) {
 				deviceID = info[devindex].deviceid;
 			}
 			if(strcmp(info[devindex].name, calibrateName) == 0) {
                                 calibrateDeviceID = info[devindex].deviceid;
                         }
-
+			if(blockingDevName != 0 && strcmp(info[devindex].name, blockingDevName) == 0) {
+				blockingDeviceID = info[devindex].deviceid;
+			}
 		}
-		if (deviceID == -1) {
-			printf("Input device not found in XInput device list.\n");
+		if(deviceID == -1) {
+			fprintf(stderr, "ERROR: Input device not found in XInput device list!\n");
 			exit(1);
 		}
 		if(calibrateDeviceID == -1) {
 			printf("Using default device for calibration\n");
 			calibrateDeviceID = deviceID;
+		}
+		if(blockingDevName != 0) {
+			if(blockingDeviceID == -1) {
+				printf("WARNING: Blocking device \"%s\" not found in XInput device list!\n", blockingDevName);
+			} else {
+				printf("Blocking on device %i.\n", blockingDeviceID);
+			}
 		}
 
 		XIFreeDeviceInfo(info);
@@ -1007,6 +1050,19 @@ int main(int argc, char **argv) {
 
 		/* Recieve events when screen size changes */
 		XRRSelectInput(display, root, RRScreenChangeNotifyMask);
+
+		/* Receive events from blocking device */
+		if(blockingDeviceID != -1)
+		{
+			XIEventMask device_mask3;
+			unsigned char mask_data3[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+			device_mask3.deviceid = blockingDeviceID;
+			device_mask3.mask_len = sizeof(mask_data3);
+			device_mask3.mask = mask_data3;
+			XISetMask(device_mask3.mask, XI_ButtonPress);
+			XISetMask(device_mask3.mask, XI_Motion);
+			XISelectEvents(display, root, &device_mask3, 1);
+		}
 
 
 		/* Receive touch events */

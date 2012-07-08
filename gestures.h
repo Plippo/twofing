@@ -18,7 +18,7 @@
 #define GESTURES_H_
 
 void initGestures(int);
-void processFingerGesture(FingerInfo*, int, int);
+void processFingerGesture(FingerInfo*, int, int, int);
 
 Profile *getWindowProfile(Window);
 
