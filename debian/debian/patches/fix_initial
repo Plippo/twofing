@@ -1,0 +1,14 @@
+--- a/Makefile
++++ b/Makefile
+@@ -13,9 +13,9 @@
+ 
+ install:
+ 	mkdir -p $(BINDIR)
+-	mkdir -p $(DESTDIR)/etc/udev/rules.d/
++	mkdir -p $(DESTDIR)/lib/udev/rules.d/
+ 	install --mode=755 $(NAME) $(BINDIR)/
+-	cp 70-touchscreen-egalax.rules $(DESTDIR)/etc/udev/rules.d/
++	cp 70-touchscreen-egalax.rules $(DESTDIR)/lib/udev/rules.d/
+ 
+ clean:
+ 	rm -f *.o $(NAME)
