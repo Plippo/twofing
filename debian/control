@@ -3,7 +3,8 @@ Maintainer: Joe Gunn <gunnjo@curlycloud.com>
 Section: misc
 Priority: optional
 Standards-Version: 3.9.1
-Build-Depends: debhelper (>= 8)
+Build-Depends: debhelper (>= 8), libx11-dev, libxtst-dev,
+ libxi-dev, x11proto-randr-dev, libxrandr-dev
 
 Package: twofing
 Architecture: any
