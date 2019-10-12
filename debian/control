@@ -8,7 +8,7 @@ Build-Depends: debhelper (>= 8), libx11-dev, libxtst-dev,
 
 Package: twofing
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends}, xserver-xorg-input-evdev
 Description: Process mouse events into gestures.
  twofing is a daemon that is intended to generate gestures from mouse events
  It has been tested with eGalax touch controllers.
