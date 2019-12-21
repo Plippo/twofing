@@ -4,6 +4,7 @@ twofing is a daemon which runs in the background and recognizes two-finger gestu
 
 # Installation
 
+```
 sudo apt-get install \
   build-essential \
   libx11-dev \
@@ -13,18 +14,20 @@ sudo apt-get install \
   libxrandr-dev \
   xserver-xorg-input-evdev \
   xserver-xorg-input-evdev-dev
-
 make
 sudo make install
+```
 
 Create a x11 conf file and att the following section to it
 
+```
 Section "InputClass"
   Identifier "calibration"
   Driver "evdev"
-  MatchProduct "{{ your device name, get with xinput list }}"
+  MatchProduct "{{ put your device name here, get it with xinput list }}"
 
   Option "EmulateThirdButton" "1"
   Option "EmulateThirdButtonTimeout" "750"
   Option "EmulateThirdButtonMoveThreshold" "30"
 EndSection
+```
