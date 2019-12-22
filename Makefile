@@ -15,7 +15,7 @@ install:
 	mkdir -p $(BINDIR)
 	mkdir -p $(DESTDIR)/etc/udev/rules.d/
 	install --mode=755 $(NAME) $(BINDIR)/
-	for f in *.rules; do cp $$f $(DESTDIR)/etc/udev/rules.d/; done
+	for f in rules/*.rules; do cp $$f $(DESTDIR)/etc/udev/rules.d/; done
 
 clean:
 	rm -f *.o $(NAME)
