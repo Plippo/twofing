@@ -1,5 +1,5 @@
 /*
- Copyright (C) 2010, Philipp Merkel <linux@philmerk.de>
+ Copyright (C) 2010-2020, Philipp Merkel <linux@philmerk.de>
 
  Permission to use, copy, modify, and/or distribute this software for any
  purpose with or without fee is hereby granted, provided that the above
@@ -21,7 +21,7 @@
 #define PROFILES_H_
 
 /* Blacklist */
-char* blacklist[] = { "xournal", "gimp-2.6", "gimp", "mypaint", "inkscape", NULL };
+char* blacklist[] = { "xournal", "gimp-2.6", "gimp", "mypaint", "inkscape", "chrome", NULL };
 
 /* WM-Blacklist */
 char* wmBlacklist[] = { "kwin", "mutter", "metacity", "compiz", "unity", NULL };

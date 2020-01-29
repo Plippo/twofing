@@ -19,7 +19,7 @@
 
 #define MAX(a, b) (a > b ? a : b) 
 
-#define VERSION "0.1.2.20120708"
+#define VERSION "0.1.4.20200129"
 
 #define BLOCKING_INTERVAL_MS_DEFAULT 500
 
