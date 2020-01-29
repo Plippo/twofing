@@ -31,3 +31,5 @@ Section "InputClass"
   Option "EmulateThirdButtonMoveThreshold" "30"
 EndSection
 ```
+## Special install script for Argonaut M7
+An install script for the Argonaut M7 (courtesy of Mikhail Grushinskiy) can be found here: https://github.com/bareboat-necessities/my-bareboat/blob/master/twofing/rpi_twofing_install.sh
