@@ -1,0 +1,2 @@
+KERNEL=="event*",ATTRS{name}=="N-trig DuoSense",SYMLINK+="twofingtouch",RUN+="/bin/chmod a+r /dev/twofingtouch"
+
