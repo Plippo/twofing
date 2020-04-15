@@ -1,0 +1,7 @@
+SUBSYSTEMS=="usb",ACTION=="add",KERNEL=="event*",ATTRS{idVendor}=="0483",ATTRS{idProduct}=="5750",SYMLINK+="twofingtouch",RUN+="/bin/chmod a+r /dev/twofingtouch"
+
+#KERNEL=="event*",ATTRS{iProduct}=="ByQDtech 触控USB鼠标",SYMLINK+="twofingtouch",RUN+="/bin/chmod a+r /dev/twofingtouch"
+#KERNEL=="event*",ATTRS{name}=="深圳市全动电子技术有限公司",SYMLINK+="twofingtouch",RUN+="/bin/chmod a+r /dev/twofingtouch"
+
+KERNEL=="event*",ATTRS{idVendor}=="0483",ATTRS{idProduct}=="5750",SYMLINK+="twofingtouch",RUN+="/bin/chmod a+r /dev/twofingtouch"
+
