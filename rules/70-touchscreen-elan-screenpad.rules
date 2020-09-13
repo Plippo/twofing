@@ -1,0 +1,2 @@
+KERNEL=="event*",ATTRS{name}=="ELAN9009:00 04F3:29DE",SYMLINK+="twofingtouch",MODE="0444"
+
