@@ -766,7 +766,6 @@ void readCalibrationData(int exitOnFail, char* deviceName) {
 				}
 				calibMaxX = 3600;
 				calibMaxY = 960;
-				// TODO anders
 			} else {
 				int nDev;
 				XIDeviceInfo * deviceInfo = XIQueryDevice(display, calibrateDeviceID, &nDev);
