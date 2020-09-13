@@ -34,6 +34,8 @@
 #include <sys/stat.h>
 #include <sys/select.h>
 #include <time.h>
+#include <signal.h>
+#include <pthread.h>
 
 #define EXIT_SUCCESS 0
 #define EXIT_FAILURE 1
@@ -103,6 +105,7 @@ int randrEvBase;
 int randrErrBase;
 int xinputEvBase;
 int xinputErrBase;
+int disableOnGrab = 0;
 
 /* Calibration data */
 int calibMinX, calibMaxX, calibMinY, calibMaxY;
@@ -127,6 +130,20 @@ int blockingDeviceID = -1;
 int blockingIntervalMilliseconds = BLOCKING_INTERVAL_MS_DEFAULT;
 TimeVal lastBlockingInputTime = { 0, 0};
 int currentTouchBlocked = 0;
+int alsoBlockTwoFingerTouches = 0;
+
+/* Ability to move mouse back after touches */
+int moveMouseBackAfterTouches = 0;
+int prevMouseX = 0;
+int prevMouseY = 0;
+
+/* Signal handling */
+pthread_t signalThread;
+sigset_t signalSet;
+
+int stopSignalReceived = 0;
+
+
 
 /* Handle errors by, well, throwing them away. */
 int invalidWindowHandler(Display *dsp, XErrorEvent *err) {
@@ -135,27 +152,40 @@ int invalidWindowHandler(Display *dsp, XErrorEvent *err) {
 
 /* Grab the device so input is captured */
 void grab(Display* display, int grabDeviceID) {
-	XIEventMask device_mask;
-	unsigned char mask_data[8] = { 0,0,0,0,0,0,0,0 };
-	device_mask.mask_len = sizeof(mask_data);
-	device_mask.mask = mask_data;
-	XISetMask(device_mask.mask, XI_Motion);
-	XISetMask(device_mask.mask, XI_ButtonPress);
 
-/* Experiments with X MT support, not working yet */
-//	XISetMask(device_mask.mask, XI_TouchBegin);
-//	XISetMask(device_mask.mask, XI_TouchUpdate);
-//	XISetMask(device_mask.mask, XI_TouchEnd);
-//	XIGrabModifiers modifiers;
-//	modifiers.modifiers = XIAnyModifier;
-//	int r = XIGrabButton(display, grabDeviceID, XIAnyButton, root, None, GrabModeSync,
-//			GrabModeAsync, True, &device_mask, 1, &modifiers);
-//	int r = XIGrabTouchBegin(display, grabDeviceID, root, None, &device_mask, 0, modifiers);
+	if (disableOnGrab) {
+		if(debugMode) printf("Disabling device instead of grabbing\n");
+		XDevice *dev = XOpenDevice(display, grabDeviceID);
+		if(dev) {
+			unsigned char cEnable = (unsigned char) 0;
+			XChangeDeviceProperty(display, dev, XInternAtom(display,
+				"Device Enabled", 0), XA_INTEGER, 8, PropModeReplace, &cEnable, 1);
+			XCloseDevice(display, dev);
+		} else {
+			if(debugMode) printf("Couldn't open device: %i\n", grabDeviceID);
+		}
+	} else {
+		XIEventMask device_mask;
+		unsigned char mask_data[8] = { 0,0,0,0,0,0,0,0 };
+		device_mask.mask_len = sizeof(mask_data);
+		device_mask.mask = mask_data;
+		XISetMask(device_mask.mask, XI_Motion);
+		XISetMask(device_mask.mask, XI_ButtonPress);
 
-	int r = XIGrabDevice(display, grabDeviceID, root, CurrentTime, None, GrabModeAsync, GrabModeAsync, False, &device_mask);
+	/* Experiments with X MT support, not working yet */
+	//	XISetMask(device_mask.mask, XI_TouchBegin);
+	//	XISetMask(device_mask.mask, XI_TouchUpdate);
+	//	XISetMask(device_mask.mask, XI_TouchEnd);
+	//	XIGrabModifiers modifiers;
+	//	modifiers.modifiers = XIAnyModifier;
+	//	int r = XIGrabButton(display, grabDeviceID, XIAnyButton, root, None, GrabModeSync,
+	//			GrabModeAsync, True, &device_mask, 1, &modifiers);
+	//	int r = XIGrabTouchBegin(display, grabDeviceID, root, None, &device_mask, 0, modifiers);
 
-	if(debugMode) printf("Grab Result: %i\n", r);
+		int r = XIGrabDevice(display, grabDeviceID, root, CurrentTime, None, GrabModeAsync, GrabModeAsync, False, &device_mask);
 
+		if(debugMode) printf("Grab Result: %i\n", r);
+	}
 }
 
 /* Ungrab the device so input can be handled by application directly */
@@ -163,7 +193,21 @@ void ungrab(Display* display, int grabDeviceID) {
 /* Experiments with X MT support, not working yet */
 //	XIGrabModifiers modifiers[1] = { { 0, 0 } };
 //	XIUngrabButton(display, grabDeviceID, 1, root, 1, modifiers);
-	XIUngrabDevice(display, grabDeviceID, CurrentTime);
+	if (disableOnGrab) {
+		if(debugMode) printf("Enabling device instead of ungrabbing\n");	
+		XDevice *dev = XOpenDevice(display, grabDeviceID);
+		if(dev) {
+			unsigned char cEnable = (unsigned char) 1;
+			XChangeDeviceProperty(display, dev, XInternAtom(display,
+				"Device Enabled", 0), XA_INTEGER, 8, PropModeReplace, &cEnable, 1);
+			XCloseDevice(display, dev);
+			if(debugMode) printf("Device Enabled: %i\n", grabDeviceID);
+		} else {
+			if(debugMode) printf("Couldn't open device: %i\n", grabDeviceID);
+		}
+	} else {
+		XIUngrabDevice(display, grabDeviceID, CurrentTime);
+	}
 }
 
 TimeVal getCurrentTime() {
@@ -233,8 +277,6 @@ int isButtonDown() {
 
 /* Moves the pointer to the given position */
 void movePointer(int x, int y, int z) {
-	/* Move pointer to center between touch points */
-
 	/* Experiments with XI events, not working yet */
 	//	int axes[3] = {x, y, z};
 	//	XDevice * dev = XOpenDevice(display, 17);
@@ -363,6 +405,20 @@ Window getLastChildWindow(Window w) {
 		return None;
 	} else {
 		return None;
+	}
+
+}
+
+void storePrevMousePos() {
+	Window root_return, child_return;
+	int root_x_return = 0, root_y_return = 0;
+	int win_x_return = 0, win_y_return = 0;
+	unsigned int mask_return = 0;
+
+	if (XQueryPointer(display, root, &root_return, &child_return, &root_x_return, &root_y_return, 
+                     &win_x_return, &win_y_return, &mask_return) == True) {
+		prevMouseX = root_x_return;
+		prevMouseY = root_y_return;
 	}
 
 }
@@ -506,10 +562,20 @@ void processFingers() {
 		if(debugMode) printf("Touch blocked.\n");
 	}
 
-	processFingerGesture(fingerInfos, fingersDown, fingersWereDown, currentTouchBlocked);
+	if(moveMouseBackAfterTouches && !currentTouchBlocked && fingersDown > 0 && fingersWereDown == 0) {
+		storePrevMousePos();
+	}
+
+
+	if(!currentTouchBlocked || !alsoBlockTwoFingerTouches) {
+		processFingerGesture(fingerInfos, fingersDown, fingersWereDown, currentTouchBlocked);
+	}
 
 	if(fingersDown == 0) {
 		currentTouchBlocked = 0;
+		if(fingersWereDown > 0 && moveMouseBackAfterTouches) {
+			movePointer(prevMouseX, prevMouseY, 0);
+		}
 	}
 
 	/* Save number of fingers to compare next time */
@@ -584,7 +650,7 @@ void handleXEvent() {
 		if (cookie->evtype == XI_PropertyEvent) {
 			/* Device properties changed -> recalibrate. */
 			if(debugMode) printf("Device properties changed.\n");
-			readCalibrationData(0);
+			readCalibrationData(0, NULL);
 		}
 
 		/*if (cookie->evtype == XI_Motion) {
@@ -660,7 +726,7 @@ void handleXEvent() {
 }
 
 /* Reads the calibration data from evdev, should be self-explanatory. */
-void readCalibrationData(int exitOnFail) {
+void readCalibrationData(int exitOnFail, char* deviceName) {
 	if(debugMode) {
 		printf("Start calibration\n");
 	}
@@ -683,7 +749,8 @@ void readCalibrationData(int exitOnFail) {
 				"Evdev Axis Calibration", 0), 0, 4 * 32, False, XA_INTEGER,
 				&retType, &retFormat, &retItems, &retBytesAfter,
 				(unsigned char**) &data) != Success) {
-			return;
+					retItems = 0;
+				return;
 		}
 
 		if (retItems != 4 || data[0] == data[1] || data[2] == data[3]) {
@@ -693,32 +760,40 @@ void readCalibrationData(int exitOnFail) {
 			}
 
 			/* Get minimum/maximum of axes */
+			if (strcmp(deviceName, "ELAN9009:00 04F3:29DE") == 0) {
+				if(debugMode) {
+					printf("Using fixed values for ELAN device for now.\n");
+				}
+				calibMaxX = 3600;
+				calibMaxY = 960;
+				// TODO anders
+			} else {
+				int nDev;
+				XIDeviceInfo * deviceInfo = XIQueryDevice(display, calibrateDeviceID, &nDev);
 
-			int nDev;
-			XIDeviceInfo * deviceInfo = XIQueryDevice(display, calibrateDeviceID, &nDev);
-
-			int c;
-			for(c = 0; c < deviceInfo->num_classes; c++) {
-				if(deviceInfo->classes[c]->type == XIValuatorClass) {
-					XIValuatorClassInfo* valuatorInfo = (XIValuatorClassInfo *) deviceInfo->classes[c];
-					if(valuatorInfo->mode == XIModeAbsolute) {
-						if(valuatorInfo->label == XInternAtom(display, "Abs X", 0)
-						|| valuatorInfo->label == XInternAtom(display, "Abs MT Position X", 0)) 
-						{
-							calibMinX = valuatorInfo->min;
-							calibMaxX = valuatorInfo->max;
-						}
-						else if(valuatorInfo->label == XInternAtom(display, "Abs Y", 0) 							|| valuatorInfo->label == XInternAtom(display, "Abs MT Position Y", 0))
-						{
-							calibMinY = valuatorInfo->min;
-							calibMaxY = valuatorInfo->max;
+				int c;
+				for(c = 0; c < deviceInfo->num_classes; c++) {
+					if(deviceInfo->classes[c]->type == XIValuatorClass) {
+						XIValuatorClassInfo* valuatorInfo = (XIValuatorClassInfo *) deviceInfo->classes[c];
+						if(valuatorInfo->mode == XIModeAbsolute) {
+							if(valuatorInfo->label == XInternAtom(display, "Abs X", 0)
+							|| valuatorInfo->label == XInternAtom(display, "Abs MT Position X", 0)) 
+							{
+								calibMinX = valuatorInfo->min;
+								calibMaxX = valuatorInfo->max;
+							}
+							else if(valuatorInfo->label == XInternAtom(display, "Abs Y", 0)
+							|| valuatorInfo->label == XInternAtom(display, "Abs MT Position Y", 0))
+							{
+								calibMinY = valuatorInfo->min;
+								calibMaxY = valuatorInfo->max;
+							}
 						}
 					}
 				}
+
+				XIFreeDeviceInfo(deviceInfo);
 			}
-
-			XIFreeDeviceInfo(deviceInfo);
-
 		} else {
 			calibMinX = data[0];
 			calibMaxX = data[1];
@@ -764,20 +839,20 @@ void readCalibrationData(int exitOnFail) {
 	if(XIGetProperty(display, calibrateDeviceID, XInternAtom(display,
 			"Evdev Axis Inversion", 0), 0, 2 * 8, False, XA_INTEGER, &retType,
 			&retFormat, &retItems, &retBytesAfter, (unsigned char**) &data2) != Success) {
-		return;
+		retItems = 0;
 	}
 
 	if (retItems != 2) {
-		if (exitOnFail) {
-			printf("No valid axis inversion data found.\n");
-			exit(1);
-		} else {
-			return;
+		if (debugMode) {
+			printf("No valid axis inversion data found, assuming no inversion.\n");
 		}
+		calibSwapX = 0;
+		calibSwapY = 0;
+	} else {
+	 	calibSwapX = data2[0];
+		calibSwapY = data2[1];
 	}
 
-	calibSwapX = data2[0];
-	calibSwapY = data2[1];
 
 	XFree(data2);
 
@@ -785,18 +860,20 @@ void readCalibrationData(int exitOnFail) {
 			XInternAtom(display, "Evdev Axes Swap", 0), 0, 8, False,
 			XA_INTEGER, &retType, &retFormat, &retItems, &retBytesAfter,
 			(unsigned char**) &data2) != Success) {
-		return;
+		retItems = 0;
 	}
 
 	if (retItems != 1) {
-		if (exitOnFail) {
-			printf("No valid axes swap data found.\n");
-			exit(1);
-		} else {
-			return;
+		if (debugMode)
+		{
+			printf("No valid axes swap data found, assuming no swap.\n");
 		}
+		calibSwapAxes = 0;
 	}
-	calibSwapAxes = data2[0];
+		else
+	{
+		calibSwapAxes = data2[0];
+	}
 
 	XFree(data2);
 
@@ -814,6 +891,20 @@ void readCalibrationData(int exitOnFail) {
 
 }
 
+int isEasingEnabled()
+{
+	return !moveMouseBackAfterTouches;
+}
+
+void * signalThreadFunction(void *arg) {
+	int sig;
+	while(1) {
+		sigwait ( &signalSet, &sig );
+		/* Trigger update of profile settings */
+		stopSignalReceived = 1;
+		return 0;
+	}
+}
 
 /* Main function, contains kernel driver event loop */
 int main(int argc, char **argv) {
@@ -845,14 +936,24 @@ int main(int argc, char **argv) {
 			if(i + 1 < argc) {
 				blockingDevName = argv[++i];
 			}
+		} else if (strcmp(argv[i], "--also-block-twofingers") == 0) {
+			alsoBlockTwoFingerTouches = 1;
+		} else if (strcmp(argv[i], "--grab-by-disabling") == 0) {
+			disableOnGrab = 1;
 		} else if (strcmp(argv[i], "--blockinginterval") == 0) {
 			if(i + 1 < argc) {
 				blockingIntervalMilliseconds = atoi(argv[++i]);
 			}
+		} else if (strcmp(argv[i], "--moveback") == 0) {
+			moveMouseBackAfterTouches = 1;
+		} else if (strcmp(argv[i], "--screenpad") == 0) {
+			blockingDevName = "ELAN9009:00 04F3:29DE Pen (0)";
+			disableOnGrab = 1;
+			alsoBlockTwoFingerTouches = 1;
+			moveMouseBackAfterTouches = 1;
 		} else {
 			devname = argv[i];
 		}
-
 	}
 
 	if(debugMode || justVersion)
@@ -867,6 +968,10 @@ int main(int argc, char **argv) {
 
 	initGestures(clickMode);
 
+	if (blockingDevName != 0)
+	{
+		lastBlockingInputTime = getCurrentTime();
+	}
 
 
 	if (doDaemonize) {
@@ -911,6 +1016,16 @@ int main(int argc, char **argv) {
 		perror("/dev/twofingtouch");
 		return 1;
 	}
+
+
+	sigemptyset(&signalSet);
+	sigaddset(&signalSet, SIGINT);
+	sigaddset(&signalSet, SIGTERM);
+	pthread_sigmask (SIG_BLOCK, &signalSet, NULL);
+	if(pthread_create(&signalThread, NULL, signalThreadFunction, NULL)) {
+		printf("Couldn't create signal thread.\n");
+	}
+
 
 	fd_set fileDescSet;
 	FD_ZERO(&fileDescSet);
@@ -997,17 +1112,18 @@ int main(int argc, char **argv) {
 		blockingDeviceID = -1;
 		int devindex;
 		for(devindex = 0; devindex < n; devindex++) {
-			if(info[devindex].use == XIMasterPointer || info[devindex].use
-					== XIMasterKeyboard)
+			if(info[devindex].use == XIMasterPointer 
+			   || info[devindex].use == XIMasterKeyboard
+			   || info[devindex].use == XISlaveKeyboard)
 				continue;
 
-			if(strcmp(info[devindex].name, name) == 0) {
+			if(strcmp(info[devindex].name, name) == 0 && deviceID == -1) {
 				deviceID = info[devindex].deviceid;
 			}
-			if(strcmp(info[devindex].name, calibrateName) == 0) {
-                                calibrateDeviceID = info[devindex].deviceid;
-                        }
-			if(blockingDevName != 0 && strcmp(info[devindex].name, blockingDevName) == 0) {
+			if(strcmp(info[devindex].name, calibrateName) == 0 && calibrateDeviceID == -1) {
+				calibrateDeviceID = info[devindex].deviceid;
+			}
+			if(blockingDevName != 0 && strcmp(info[devindex].name, blockingDevName) == 0 && blockingDeviceID == -1) {
 				blockingDeviceID = info[devindex].deviceid;
 			}
 		}
@@ -1033,20 +1149,24 @@ int main(int argc, char **argv) {
 		if(debugMode) printf("XInput device id for calibration is %i.\n", calibrateDeviceID);
 
 		/* Prepare by reading calibration */
-		readCalibrationData(1);
+		readCalibrationData(1, name);
+
 
 		/* Receive device property change events */
-		XIEventMask device_mask2;
-		unsigned char mask_data2[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
-		device_mask2.deviceid = deviceID;
-		device_mask2.mask_len = sizeof(mask_data2);
-		device_mask2.mask = mask_data2;
-		XISetMask(device_mask2.mask, XI_PropertyEvent);
-		XISetMask(device_mask2.mask, XI_ButtonPress);
-		//XISetMask(device_mask2.mask, XI_TouchBegin);
-		//XISetMask(device_mask2.mask, XI_TouchUpdate);
-		//XISetMask(device_mask2.mask, XI_TouchEnd);
-		XISelectEvents(display, root, &device_mask2, 1);
+		if(!disableOnGrab)
+		{
+			XIEventMask device_mask2;
+			unsigned char mask_data2[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+			device_mask2.deviceid = deviceID;
+			device_mask2.mask_len = sizeof(mask_data2);
+			device_mask2.mask = mask_data2;
+			XISetMask(device_mask2.mask, XI_PropertyEvent);
+			XISetMask(device_mask2.mask, XI_ButtonPress);
+			//XISetMask(device_mask2.mask, XI_TouchBegin);
+			//XISetMask(device_mask2.mask, XI_TouchUpdate);
+			//XISetMask(device_mask2.mask, XI_TouchEnd);
+			XISelectEvents(display, root, &device_mask2, 1);
+		}
 
 		/* Recieve events when screen size changes */
 		XRRSelectInput(display, root, RRScreenChangeNotifyMask);
@@ -1067,11 +1187,8 @@ int main(int argc, char **argv) {
 
 		/* Receive touch events */
 
-
-
 		/* Needed for XTest to work correctly */
 		XTestGrabControl(display, True);
-
 
 		/* Needed for some reason to receive events */
 /*		XGrabPointer(display, root, False, 0, GrabModeAsync, GrabModeAsync,
@@ -1090,6 +1207,10 @@ int main(int argc, char **argv) {
 		FingerInfo tempFingerInfo = { .rawX=0, .rawY=0, .rawZ=0, .id = -1, .slotUsed = 0, .setThisTime = 0 };
 
 		while (1) {
+			if (stopSignalReceived)
+			{
+				break;
+			}
 
 
 			FD_SET(fileDesc, &fileDescSet);
@@ -1238,12 +1359,17 @@ int main(int argc, char **argv) {
 		releaseButton();
 		ungrab(display, deviceID);
 
+		if (stopSignalReceived)
+		{
+			break;
+		}
+
 		/* Wait until device file is there again */
 		while ((fileDesc = open(devname, O_RDONLY)) < 0) {
 			sleep(1);
 		}
-
 	}
 
+	XCloseDisplay(display);
 }
 

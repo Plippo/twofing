@@ -99,6 +99,7 @@ struct Profile {
 #define GESTURE_ROTATE 4
 
 int inDebugMode();
+int isEasingEnabled();
 
 void *xLoopThreadFunction(void *arg);
 int isWindowBlacklisted(Window w);
@@ -123,7 +124,7 @@ void grab(Display *display,int deviceid);
 
 int invalidWindowHandler(Display *dsp,XErrorEvent *err);
 
-void readCalibrationData();
+void readCalibrationData(int exitOnFail, char* deviceName);
 void startContinuation();
 
 typedef struct timeval TimeVal;

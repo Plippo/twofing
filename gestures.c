@@ -422,7 +422,7 @@ void processFingerGesture(FingerInfo* fingerInfos, int fingersDown, int fingersW
 				executeAction(&(currentProfile->scrollBraceAction),
 						EXECUTEACTION_RELEASE);
 			}
-			if(currentProfile->scrollEasing) {
+			if(currentProfile->scrollEasing && isEasingEnabled()) {
 				int intv;
 				int dirX = lastScrollDirectionX;
 				int dirY = lastScrollDirectionY;

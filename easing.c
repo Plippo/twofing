@@ -40,6 +40,7 @@ int easingDirectionY = 0;
 Profile* easingProfile;
 
 TimeVal easingStepTimeVal;
+TimeVal nonEasingTimeVal = { 5, 0 };
 
 /* Starts the easing; profile, interval and directions have to be set before. */
 void startEasing(Profile * profile, int directionX, int directionY, int interval) {
@@ -50,7 +51,6 @@ void startEasing(Profile * profile, int directionX, int directionY, int interval
 	easingStepTimeVal.tv_sec = interval / 1000;
 	easingStepTimeVal.tv_usec = (interval % 1000) * 1000;
 	easingActive = 1;
-
 }
 
 /* Stops the easing. */
@@ -120,9 +120,8 @@ TimeVal* getEasingStepTimeVal()
 	if(easingActive) {
 		return &easingStepTimeVal;
 	} else {
-		return NULL;
+		return &nonEasingTimeVal;
 	}
-
 }
 
 int isEasingActive()
