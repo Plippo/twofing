@@ -1,2 +1,6 @@
 ACTION=="add",KERNEL=="event*",ATTRS{name}=="FT5406 memory based driver",SYMLINK+="twofingtouch",MODE="0440"
 KERNEL=="event*",ATTRS{name}=="FT5406 memory based driver",SYMLINK+="twofingtouch",MODE="0440"
+
+# add support for raspberrypi-ts driver introduced by kernel 4.21
+ACTION=="add",KERNEL=="event*",ATTRS{name}=="raspberrypi-ts",SYMLINK+="twofingtouch",MODE="0440"
+KERNEL=="event*",ATTRS{name}=="raspberrypi-ts",SYMLINK+="twofingtouch",MODE="0440"
