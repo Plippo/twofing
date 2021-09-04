@@ -1215,7 +1215,9 @@ int main(int argc, char **argv) {
 			FD_SET(fileDesc, &fileDescSet);
 			FD_SET(eventQueueDesc, &fileDescSet);
 
-			select(MAX(fileDesc, eventQueueDesc) + 1, &fileDescSet, NULL, NULL, getEasingStepTimeVal());
+			TimeVal timeVal; 
+			memcpy(&timeVal, getEasingStepTimeVal(), sizeof(TimeVal));
+			select(MAX(fileDesc, eventQueueDesc) + 1, &fileDescSet, NULL, NULL, &timeVal);
 			
 			checkEasingStep();
 
