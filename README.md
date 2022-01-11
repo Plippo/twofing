@@ -18,13 +18,14 @@ make
 sudo make install
 ```
 
-Create a x11 conf file and att the following section to it
+Create a x11 conf file and add the following section to it (replace DEVICENAME with your device name, you can get it with `xinput list`.
 
 ```
 Section "InputClass"
   Identifier "calibration"
   Driver "evdev"
-  MatchProduct "{{ put your device name here, get it with xinput list }}"
+  # replace DEVICENAME in the following line with your device name
+  MatchProduct "DEVICENAME"
 
   Option "EmulateThirdButton" "1"
   Option "EmulateThirdButtonTimeout" "750"
