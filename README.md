@@ -1,4 +1,4 @@
-# twogfing
+# twofing
 
 twofing is a daemon which runs in the background and recognizes two-finger gestures performed on a touchscreen and converts them into mouse and keyboard events. This way, such gestures can be used in almost all existing applications (even ones where you wouldn’t expect it, like Wine applications) without having to modify them.
 
